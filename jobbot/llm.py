@@ -1,0 +1,185 @@
+"""All Claude calls: fit scoring, resume tailoring, cover letters, form answers.
+
+Truthfulness is enforced two ways:
+  1. Prompts forbid inventing anything not in the profile.
+  2. Employers, titles, dates, education and contact details are copied from the
+     profile by code; Claude only chooses/rephrases bullets and writes summaries.
+"""
+from __future__ import annotations
+
+import json
+import logging
+from typing import TypeVar
+
+import anthropic
+import yaml
+from pydantic import BaseModel
+
+from jobbot.models import (CoverLetter, FitAssessment, FormAnswers, FormField, Job,
+                           TailoredResume)
+
+log = logging.getLogger(__name__)
+T = TypeVar("T", bound=BaseModel)
+
+SYSTEM = """You are a meticulous career assistant working for one candidate. \
+Their full profile is below and is the ONLY source of facts about them.
+
+Hard rules:
+- Never invent or inflate experience, employers, titles, dates, degrees, \
+certifications, skills, metrics, or results. Rephrasing and reordering true facts is fine; \
+adding new ones is not.
+- If the profile does not support something, leave it out (or flag it when asked).
+- Write in plain, specific, professional language. No buzzword soup, no clichés \
+("I am writing to express my interest", "passionate", "synergy", "rockstar").
+
+<candidate_profile>
+{profile}
+</candidate_profile>"""
+
+
+class RefusedError(RuntimeError):
+    pass
+
+
+class LLM:
+    def __init__(self, profile: dict, model: str = "claude-opus-5-5"):
+        self.client = anthropic.Anthropic()
+        self.model = model
+        self.profile = profile
+        public = {k: v for k, v in profile.items() if k not in ("eeo",)}
+        self.system = [{
+            "type": "text",
+            "text": SYSTEM.format(profile=yaml.safe_dump(public, sort_keys=False, allow_unicode=True)),
+            # Profile is identical on every call -> cache it.
+            "cache_control": {"type": "ephemeral"},
+        }]
+
+    # -------------------------------------------------------------- core
+    def _parse(self, prompt: str, schema: type[T], effort: str = "medium",
+               max_tokens: int = 16000) -> T:
+        kwargs = dict(
+            model=self.model,
+            max_tokens=max_tokens,
+            system=self.system,
+            messages=[{"role": "user", "content": prompt}],
+            output_format=schema,
+            output_config={"effort": effort},
+        )
+        if self.model in ("claude-opus-5-5", "claude-opus-5", "claude-fable-5-2",
+                          "claude-fable-5-1", "claude-sonnet-5-5"):
+            # Server-side fallback if a safety classifier declines (rare for this use).
+            kwargs["betas"] = ["server-side-fallback-2026-07-01"]
+            kwargs["fallbacks"] = "default"
+            resp = self.client.beta.messages.parse(**kwargs)
+        else:
+            resp = self.client.messages.parse(**kwargs)
+        if resp.stop_reason == "refusal":
+            raise RefusedError(getattr(resp.stop_details, "explanation", None) or "refused")
+        if resp.stop_reason == "max_tokens" or resp.parsed_output is None:
+            raise RuntimeError(f"Claude returned no parseable output (stop={resp.stop_reason})")
+        return resp.parsed_output
+
+    @staticmethod
+    def _job_block(job: Job) -> str:
+        return (f"<job>\nCompany: {job.company}\nTitle: {job.title}\nLocation: {job.location}"
+                f"{' (remote)' if job.remote else ''}\n"
+                f"{'Salary: ' + job.salary + chr(10) if job.salary else ''}"
+                f"Description:\n{job.description[:20000]}\n</job>")
+
+    # -------------------------------------------------------------- tasks
+    def assess_fit(self, job: Job) -> FitAssessment:
+        prefs = json.dumps(self.profile.get("preferences") or {}, ensure_ascii=False)
+        prompt = (
+            f"{self._job_block(job)}\n\n"
+            f"Candidate preferences: {prefs}\n\n"
+            "Assess how well this candidate fits this job. Score 0-100 where 70+ means a "
+            "realistic shot at an interview. Be honest: penalise missing hard requirements "
+            "(years, degrees, clearances, required tech) and seniority mismatches. Set "
+            "worth_applying=false for any deal-breaker in red_flags."
+        )
+        return self._parse(prompt, FitAssessment, effort="low", max_tokens=4000)
+
+    def tailor_resume(self, job: Job) -> TailoredResume:
+        prompt = (
+            f"{self._job_block(job)}\n\n"
+            "Tailor the candidate's resume for this job.\n"
+            "- roles: include every experience entry that is relevant (usually all recent "
+            "ones), referenced by its `id`, most recent first. For each, write 2-6 bullets by "
+            "selecting and rephrasing the profile's bullets for that role so the most relevant "
+            "achievements come first and use the posting's terminology where it truthfully "
+            "applies. Keep every number exactly as in the profile; do not add numbers.\n"
+            "- skills: only skills present in the profile, most relevant first, max 20.\n"
+            "- projects: only if the profile has projects relevant to this job.\n"
+            "- Resume must fit on one page for <10 years experience, two pages otherwise."
+        )
+        result = self._parse(prompt, TailoredResume, effort="medium")
+        return self._validate_resume(result)
+
+    def _validate_resume(self, r: TailoredResume) -> TailoredResume:
+        valid_exp = {e["id"] for e in self.profile["experience"]}
+        valid_proj = {p["id"] for p in self.profile.get("projects") or []}
+        bad = [x.experience_id for x in r.roles if x.experience_id not in valid_exp]
+        if bad:
+            log.warning("Dropping unknown experience ids from Claude output: %s", bad)
+        r.roles = [x for x in r.roles if x.experience_id in valid_exp]
+        r.projects = [p for p in r.projects if p.project_id in valid_proj]
+        profile_skills = {s.lower() for s in _flatten_skills(self.profile.get("skills"))}
+        if profile_skills:
+            extra = [s for s in r.skills if s.lower() not in profile_skills]
+            if extra:
+                log.warning("Removing skills not in profile: %s", extra)
+            r.skills = [s for s in r.skills if s.lower() in profile_skills]
+        if not r.roles:
+            raise RuntimeError("Tailored resume has no valid roles")
+        return r
+
+    def cover_letter(self, job: Job) -> CoverLetter:
+        prompt = (
+            f"{self._job_block(job)}\n\n"
+            "Write a cover letter for this job, 250-350 words. Open with something specific "
+            "about why this role/company and what the candidate brings - not a generic opener. "
+            "Middle: 2 concrete, true examples from the profile mapped to the job's top needs. "
+            "Close briefly. Address the hiring manager by name only if the posting names one; "
+            "otherwise use 'Dear Hiring Team,'. sign_off should be e.g. 'Best regards,'."
+        )
+        return self._parse(prompt, CoverLetter, effort="medium")
+
+    def answer_fields(self, job: Job, fields: list[FormField]) -> FormAnswers:
+        answers_hint = self.profile.get("application_answers") or {}
+        eeo = self.profile.get("eeo") or {}
+        prompt = (
+            f"{self._job_block(job)}\n\n"
+            f"Pre-written answers from the candidate: {json.dumps(answers_hint, ensure_ascii=False)}\n"
+            f"Voluntary self-identification answers the candidate chose to give: "
+            f"{json.dumps(eeo, ensure_ascii=False)}\n\n"
+            "Fill in these application form fields for the candidate:\n"
+            f"{json.dumps([f.describe() for f in fields], indent=1, ensure_ascii=False)}\n\n"
+            "Rules:\n"
+            "- Return one answer per field_id.\n"
+            "- For select/radio/checkbox/combobox, `answer` must be copied exactly from options.\n"
+            "- Demographic/EEO questions (gender, race, veteran, disability, etc.): use the "
+            "candidate's self-identification answers if given; otherwise pick the option "
+            "meaning 'decline to answer'. Never guess demographics.\n"
+            "- Legal questions (work authorization, sponsorship, criminal history, non-competes, "
+            "relatives at the company): answer only from the profile; else needs_human=true.\n"
+            "- Free-text questions ('Why do you want to work here?'): write 2-5 sentence, "
+            "specific, truthful answers based on the profile and posting.\n"
+            "- Set needs_human=true whenever you would have to guess a fact about the candidate."
+        )
+        return self._parse(prompt, FormAnswers, effort="medium")
+
+
+def _flatten_skills(skills) -> list[str]:
+    if not skills:
+        return []
+    if isinstance(skills, dict):
+        out = []
+        for v in skills.values():
+            out.extend(_flatten_skills(v))
+        return out
+    if isinstance(skills, list):
+        out = []
+        for s in skills:
+            out.extend(_flatten_skills(s) if isinstance(s, (list, dict)) else [str(s)])
+        return out
+    return [s.strip() for s in str(skills).split(",") if s.strip()]

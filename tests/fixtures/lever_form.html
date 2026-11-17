@@ -1,0 +1,30 @@
+<!doctype html><html><body>
+<form method="POST" enctype="multipart/form-data">
+ <ul>
+  <li class="application-question"><label><div class="application-label">Resume/CV<span class="required">✱</span></div>
+     <div class="application-field"><input type="file" name="resume"></div></label></li>
+  <li class="application-question"><label><div class="application-label">Full name<span class="required">✱</span></div>
+     <div class="application-field"><input type="text" name="name" required></div></label></li>
+  <li class="application-question"><label><div class="application-label">Email</div>
+     <div class="application-field"><input type="email" name="email"></div></label></li>
+  <li class="application-question"><label><div class="application-label">Current company</div>
+     <div class="application-field"><input type="text" name="org"></div></label></li>
+  <li class="application-question"><label><div class="application-label">GitHub URL</div>
+     <div class="application-field"><input type="text" name="urls[GitHub]"></div></label></li>
+  <li class="application-question custom-question">
+     <div class="application-label"><div class="text">Will you now or in the future require visa sponsorship?<span class="required">✱</span></div></div>
+     <div class="application-field"><ul>
+       <li><label><input type="radio" name="cards[abc][field0]" value="Yes" required> Yes</label></li>
+       <li><label><input type="radio" name="cards[abc][field0]" value="No"> No</label></li></ul></div></li>
+  <li class="application-question custom-question">
+     <div class="application-label"><div class="text">Which languages have you used professionally?</div></div>
+     <div class="application-field"><ul>
+       <li><label><input type="checkbox" name="cards[abc][field1]" value="Python"> Python</label></li>
+       <li><label><input type="checkbox" name="cards[abc][field1]" value="Go"> Go</label></li>
+       <li><label><input type="checkbox" name="cards[abc][field1]" value="Rust"> Rust</label></li></ul></div></li>
+  <li class="application-question"><label><div class="application-label">Additional information</div>
+     <div class="application-field"><textarea name="comments"></textarea></div></label></li>
+ </ul>
+ <iframe title="hCaptcha challenge" src="about:blank#hcaptcha" style="width:300px;height:80px"></iframe>
+ <button type="submit">Submit application</button>
+</form></body></html>

@@ -1,0 +1,37 @@
+<!doctype html><html><body>
+<h1>Senior Backend Engineer</h1>
+<form id="application-form">
+  <div class="field"><label for="first_name">First Name<span>*</span></label><input id="first_name" type="text" required></div>
+  <div class="field"><label for="last_name">Last Name<span>*</span></label><input id="last_name" type="text" required></div>
+  <div class="field"><label for="email">Email<span>*</span></label><input id="email" type="text" aria-required="true"></div>
+  <div class="field"><label for="phone">Phone</label><input id="phone" type="tel"></div>
+  <div class="field"><label id="resume-label">Resume/CV*</label><button type="button">Attach</button>
+    <input id="resume" type="file" style="display:none" aria-labelledby="resume-label"></div>
+  <div class="field"><label id="cl-label">Cover Letter</label><input id="cover_letter" type="file" style="display:none" aria-labelledby="cl-label"></div>
+  <div class="field"><label for="q1">LinkedIn Profile</label><input id="q1" type="text"></div>
+  <div class="field"><label for="q2">Are you legally authorized to work in the United States?*</label>
+    <select id="q2" required><option value="">Select...</option><option value="1">Yes</option><option value="0">No</option></select></div>
+  <div class="field"><label for="q3">Why do you want to work at Example Co?*</label><textarea id="q3" required></textarea></div>
+  <div class="field"><label for="q4">Do you have an active security clearance?*</label><input id="q4" type="text" required></div>
+  <fieldset><legend>Gender</legend>
+    <label><input type="radio" name="gender" value="m">Male</label>
+    <label><input type="radio" name="gender" value="f">Female</label>
+    <label><input type="radio" name="gender" value="d">Decline to self-identify</label>
+  </fieldset>
+  <div class="field"><label id="loc-label">Location (City)*</label>
+    <input id="loc" role="combobox" aria-labelledby="loc-label" aria-autocomplete="list">
+    <div id="loc-list" role="listbox"></div></div>
+  <label><input type="checkbox" name="consent" required> I agree to the privacy policy</label>
+  <button type="submit">Submit application</button>
+</form>
+<script>
+ const cities=["Brooklyn, NY, United States","Brooklyn Park, MN, United States"];
+ const loc=document.getElementById('loc'), list=document.getElementById('loc-list');
+ loc.addEventListener('input',()=>{list.innerHTML='';if(!loc.value)return;
+   cities.filter(c=>c.toLowerCase().includes(loc.value.toLowerCase().split(',')[0])).forEach(c=>{
+     const d=document.createElement('div');d.setAttribute('role','option');d.textContent=c;
+     d.onclick=()=>{loc.value=c;list.innerHTML='';};list.appendChild(d);});});
+ document.getElementById('application-form').addEventListener('submit',e=>{e.preventDefault();
+   document.body.innerHTML='<h1>Thank you for applying!</h1>';});
+</script>
+</body></html>
