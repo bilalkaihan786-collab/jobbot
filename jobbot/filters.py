@@ -10,7 +10,16 @@ from jobbot.models import Job
 # Words in a job title that mark it as an internship / co-op / student position.
 INTERNSHIP_TERMS = ("intern", "interns", "internship", "internships", "co-op", "co-ops", "coop",
                     "co op", "work term", "student", "apprentice", "apprenticeship")
-FOCUSES = ("jobs", "internships", "both")
+FOCUSES = ("jobs", "students", "internships")
+
+
+def normalize_focus(focus) -> str:
+    focus = (focus or "jobs").lower()
+    return "students" if focus == "both" else focus if focus in FOCUSES else "jobs"
+
+
+def student_focus(focus) -> bool:
+    return normalize_focus(focus) in ("students", "internships")
 
 
 def _has(text: str, term: str) -> bool:
@@ -36,10 +45,11 @@ def is_internship(job: Job) -> bool:
 
 
 def passes(job: Job, search: dict) -> tuple[bool, str]:
-    """search.focus: jobs (regular roles), internships (internships/co-ops only), or both."""
+    """search.focus: jobs (regular roles), students (student-friendly work of any kind), or
+    internships (only titles that say internship / co-op / student)."""
     title = job.title.lower()
     text = f"{title}\n{job.description.lower()}"
-    focus = search.get("focus") or "jobs"
+    focus = normalize_focus(search.get("focus"))
     intern = is_internship(job)
 
     if focus == "internships" and not intern:
@@ -58,7 +68,7 @@ def passes(job: Job, search: dict) -> tuple[bool, str]:
         # Fall back to description, but require two hits so generic pages don't slip in.
         # Internship titles are short ("Engineering Intern"), so one hit is enough for them.
         hits = sum(_has(text, k) for k in keywords)
-        if hits < (1 if focus != "jobs" and intern else 2):
+        if hits < (1 if focus == "students" or (focus != "jobs" and intern) else 2):
             return False, "no keyword match"
 
     locations = [l.lower() for l in search.get("locations") or []]

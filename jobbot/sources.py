@@ -5,6 +5,10 @@ Only public, documented job-board APIs that employers publish on purpose are use
   * Lever       https://api.lever.co/v0/postings/{company}
   * Ashby       https://api.ashbyhq.com/posting-api/job-board/{company}
   * Remotive    https://remotive.com/api/remote-jobs   (discovery only; apply manually)
+  * Adzuna      https://api.adzuna.com/v1/api/jobs/{country}/search/{page}
+                Job search across many employers (hospitals, universities, governments...).
+                Needs a free app_id/app_key from https://developer.adzuna.com. Discovery only:
+                you apply on the employer's site. Adzuna returns only a description snippet.
 
 LinkedIn, Indeed, etc. are deliberately NOT scraped: their terms forbid bots and
 accounts get banned.
@@ -13,6 +17,7 @@ from __future__ import annotations
 
 import html
 import logging
+import os
 import re
 from typing import Callable, Iterable
 
@@ -121,6 +126,42 @@ def parse_remotive(data: dict) -> list[Job]:
     return jobs
 
 
+CURRENCY = {"ca": "CAD", "us": "USD", "gb": "GBP", "fr": "EUR", "de": "EUR", "au": "AUD",
+            "nz": "NZD", "in": "INR", "sg": "SGD", "za": "ZAR", "br": "BRL", "mx": "MXN"}
+
+
+def parse_adzuna(data: dict, country: str = "ca") -> list[Job]:
+    jobs = []
+    for j in data.get("results", []):
+        loc_obj = j.get("location") or {}
+        area = [a for a in (loc_obj.get("area") or []) if a]
+        loc = (loc_obj.get("display_name") or "").strip()
+        # display_name is e.g. "Ottawa, Ontario"; add province/country so filters like "Canada" work.
+        for a in area[1:2] + area[:1]:
+            if a.lower() not in loc.lower():
+                loc = f"{loc}, {a}" if loc else a
+        desc = html_to_text(j.get("description", ""))
+        details = [x.replace("_", "-") for x in (j.get("contract_time"), j.get("contract_type")) if x]
+        if details:
+            desc = f"[{', '.join(details)}] {desc}"
+        lo, hi = j.get("salary_min"), j.get("salary_max")
+        salary = ""
+        if (lo or hi) and not int(j.get("salary_is_predicted") or 0):
+            cur = CURRENCY.get(country, "")
+            salary = (f"{lo:,.0f}-{hi:,.0f} {cur}" if lo and hi and lo != hi
+                      else f"{(lo or hi):,.0f} {cur}").strip()
+        title = html_to_text(j.get("title", ""))
+        url = j.get("redirect_url", "")
+        jobs.append(Job(
+            source="adzuna", source_id=str(j.get("id", "")),
+            company=((j.get("company") or {}).get("display_name") or "Employer not listed").strip(),
+            title=title, location=loc, url=url, apply_url=url, description=desc,
+            remote="remote" in f"{title} {loc} {desc[:300]}".lower(),
+            posted_at=j.get("created", ""), salary=salary,
+        ))
+    return jobs
+
+
 # ---------------------------------------------------------------- fetchers
 
 def fetch_greenhouse(company: str) -> list[Job]:
@@ -145,6 +186,25 @@ def fetch_remotive(search: str = "", category: str = "") -> list[Job]:
     return parse_remotive(_get_json("https://remotive.com/api/remote-jobs", params))
 
 
+def adzuna_keys(ad: dict) -> tuple[str, str]:
+    return (str(ad.get("app_id") or os.environ.get("ADZUNA_APP_ID") or "").strip(),
+            str(ad.get("app_key") or os.environ.get("ADZUNA_APP_KEY") or "").strip())
+
+
+def fetch_adzuna(ad: dict, what: str, max_age_days: int | None = None) -> list[Job]:
+    app_id, app_key = adzuna_keys(ad)
+    country = (ad.get("country") or "ca").lower()
+    params = {"app_id": app_id, "app_key": app_key, "what": what,
+              "results_per_page": int(ad.get("results_per_page") or 50),
+              "content-type": "application/json"}
+    if ad.get("where"):
+        params["where"] = ad["where"]
+    if max_age_days:
+        params["max_days_old"] = int(max_age_days)
+    data = _get_json(f"https://api.adzuna.com/v1/api/jobs/{country}/search/1", params)
+    return parse_adzuna(data, country)
+
+
 def fetch_all(cfg: dict) -> list[Job]:
     src = cfg["sources"]
     tasks: list[tuple[str, Callable[[], Iterable[Job]]]] = []
@@ -160,15 +220,30 @@ def fetch_all(cfg: dict) -> list[Job]:
         for s in searches:
             tasks.append((f"remotive/{s}", lambda s=s: fetch_remotive(s, rem.get("category", ""))))
 
+    ad = src.get("adzuna") or {}
+    if ad.get("enabled") and ad.get("searches"):
+        if all(adzuna_keys(ad)):
+            for s in ad["searches"]:
+                tasks.append((f"adzuna/{s}",
+                              lambda s=s: fetch_adzuna(ad, s, cfg["search"].get("max_age_days"))))
+        else:
+            log.warning("Adzuna is on but has no app_id/app_key. Get a free key at "
+                        "https://developer.adzuna.com and add it on the Preferences tab.")
+
     jobs: list[Job] = []
+    seen: set[str] = set()
     for name, fn in tasks:
         try:
             got = list(fn())
             log.info("%-35s %4d jobs", name, len(got))
-            jobs.extend(got)
+            for j in got:           # several searches can return the same posting
+                if j.key not in seen:
+                    seen.add(j.key)
+                    jobs.append(j)
         except requests.HTTPError as e:
             code = e.response.status_code if e.response is not None else "?"
-            hint = " (check the company slug)" if code == 404 else ""
+            hint = (" (check your Adzuna app_id/app_key)" if name.startswith("adzuna") and code in (401, 403)
+                    else " (check the company slug)" if code == 404 else "")
             log.warning("%s: HTTP %s%s", name, code, hint)
         except requests.RequestException as e:
             log.warning("%s: %s", name, e)

@@ -44,7 +44,18 @@ def build_resume_data(profile: dict, t: TailoredResume, education_first: bool = 
         "education": profile.get("education") or [],
         "certifications": profile.get("certifications") or [],
         "education_first": education_first,   # student resumes lead with education
+        "languages": _str_items(profile.get("languages")),   # copied verbatim from the profile
     }
+
+
+def _str_items(v) -> list[str]:
+    if not v:
+        return []
+    if isinstance(v, dict):
+        return [f"{k}: {val}" if val else str(k) for k, val in v.items()]
+    if isinstance(v, (list, tuple)):
+        return [str(x) for x in v if x]
+    return [str(v)]
 
 
 # ------------------------------------------------------------------ HTML
@@ -85,6 +96,8 @@ def resume_html(d: dict) -> str:
         parts.extend(edu)
     if d["skills"]:
         parts.append(f"<h2>Skills</h2><p>{e(' · '.join(d['skills']))}</p>")
+    if d.get("languages"):
+        parts.append(f"<h2>Languages</h2><p>{e(' · '.join(d['languages']))}</p>")
     parts.append("<h2>Experience</h2>")
     for r in d["roles"]:
         where = ", ".join(x for x in [r["company"], r["location"]] if x)
@@ -170,6 +183,8 @@ def resume_docx(d: dict, out: Path) -> Path:
         education()
     if d["skills"]:
         section("Skills"); doc.add_paragraph(" · ".join(d["skills"]))
+    if d.get("languages"):
+        section("Languages"); doc.add_paragraph(" · ".join(d["languages"]))
     section("Experience")
     for role in d["roles"]:
         p = doc.add_paragraph()
@@ -214,9 +229,11 @@ def job_dir(output_dir: str, job: Job) -> Path:
 
 
 def write_resume(profile: dict, job: Job, t: TailoredResume, output_dir: str,
-                 formats: list[str]) -> Path:
+                 formats: list[str], education_first: bool | None = None) -> Path:
     from jobbot.filters import is_internship
-    d = build_resume_data(profile, t, education_first=is_internship(job))
+    if education_first is None:
+        education_first = is_internship(job)
+    d = build_resume_data(profile, t, education_first=education_first)
     folder = job_dir(output_dir, job)
     base = f"{slug(profile['name'])}-resume"
     pdf = folder / f"{base}.pdf"

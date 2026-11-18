@@ -119,6 +119,10 @@ textarea { width: 100%; min-height: 460px; font: 13px/1.5 ui-monospace, SFMono-R
 .choice b { font-size: 14.5px; }
 .choice span { display: block; color: var(--muted); font-size: 13px; margin-top: 4px; }
 .choice:has(input:checked) { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+.elsewhere { margin-top: 14px; }
+.elsewhere h3 { margin: 0 0 4px; font-size: 15px; }
+.elsewhere .links { margin-top: 10px; }
+.via { font-size: 12.5px; color: var(--muted); }
 .savebar { position: sticky; bottom: 0; background: var(--bg); padding: 12px 0; display: flex; gap: 12px; align-items: center;
            border-top: 1px solid var(--line); }
 @media (max-width: 720px) {
@@ -148,7 +152,7 @@ textarea { width: 100%; min-height: 460px; font: 13px/1.5 ui-monospace, SFMono-R
   <div id="setup"></div>
   <div class="steps">
     <div class="panel step"><h3><span class="n">1</span>Find jobs</h3>
-      <p>Fetch new openings from your companies, filter them, and score how well you fit.</p>
+      <p>Search Adzuna and your employers for new openings, filter them, and score how well you fit.</p>
       <button class="primary" data-run="find">Find jobs</button></div>
     <div class="panel step"><h3><span class="n">2</span>Prepare resumes</h3>
       <p>Write a tailored resume (and cover letter where needed) for each good match.</p>
@@ -165,6 +169,7 @@ textarea { width: 100%; min-height: 460px; font: 13px/1.5 ui-monospace, SFMono-R
   <div id="review"></div>
   <details class="logbox" id="logbox"><summary id="logsum">Activity log</summary><pre class="log" id="log">Nothing has run yet.</pre></details>
 
+  <div id="elsewhere"></div>
   <div class="chips" id="chips"></div>
   <div class="toolbar">
     <input type="search" id="q" placeholder="Search title, company or location" aria-label="Search jobs">
@@ -188,17 +193,26 @@ textarea { width: 100%; min-height: 460px; font: 13px/1.5 ui-monospace, SFMono-R
     <h3>What are you looking for?</h3>
     <p class="sub">This changes which postings jobbot keeps, how it scores them, and how your resume is laid out.</p>
     <div class="choices">
-      <label class="choice"><input type="radio" name="focus" value="jobs"><b>Jobs</b>
-        <span>Regular roles. Internship titles are filtered out.</span></label>
-      <label class="choice"><input type="radio" name="focus" value="internships"><b>Internships &amp; co-ops</b>
-        <span>Only internships, co-ops and student roles. Scored on eligibility, not years of experience. Resume leads with education.</span></label>
-      <label class="choice"><input type="radio" name="focus" value="both"><b>Both</b>
-        <span>Everything. Internships are judged as internships.</span></label>
+      <label class="choice"><input type="radio" name="focus" value="students"><b>Student jobs</b>
+        <span>Summer jobs, part-time work during school, co-ops and internships. Scored on student eligibility, not years of experience. Resumes lead with education.</span></label>
+      <label class="choice"><input type="radio" name="focus" value="internships"><b>Internships &amp; co-ops only</b>
+        <span>Only postings whose title says internship, co-op or student.</span></label>
+      <label class="choice"><input type="radio" name="focus" value="jobs"><b>Regular jobs</b>
+        <span>Jobs after graduation. Judged on experience like any applicant.</span></label>
     </div>
     <div class="fields" style="margin-top:14px">
-      <div class="field full" id="term-field"><label for="p-term">Internship / co-op term</label>
-        <input type="text" id="p-term" placeholder="e.g. Summer 2027, 4-month co-op starting May">
-        <div class="hint">Used when scoring, so postings for the wrong dates rank lower. Add your expected graduation date to Education in your profile.</div></div>
+      <div class="field" id="schedule-field"><label>When can you work?</label>
+        <div class="row" style="gap:14px">
+          <label class="check"><input type="checkbox" name="schedule" value="summer"> Summer</label>
+          <label class="check"><input type="checkbox" name="schedule" value="part-time"> Part-time during school</label>
+          <label class="check"><input type="checkbox" name="schedule" value="co-op"> Co-op / internship</label>
+        </div></div>
+      <div class="field" id="term-field"><label for="p-term">Term or dates</label>
+        <input type="text" id="p-term" placeholder="e.g. Summer 2027 (May–August)">
+        <div class="hint">Postings for the wrong dates rank lower. Put your expected graduation in Education on your profile.</div></div>
+      <div class="field full"><label for="p-targets">Kinds of work you want</label>
+        <textarea class="small" id="p-targets" placeholder="research assistant roles in kinesiology or health research, clinical or hospital settings, teaching or tutoring French, government jobs that require French"></textarea>
+        <div class="hint">The AI uses this to judge how well each posting's field matches you. Separate with commas.</div></div>
     </div>
   </div>
 
@@ -207,13 +221,14 @@ textarea { width: 100%; min-height: 460px; font: 13px/1.5 ui-monospace, SFMono-R
     <p class="sub">Separate items with commas. A posting passes if a keyword is in its title (or appears in the description).</p>
     <div class="fields">
       <div class="field"><label for="p-keywords">Keywords</label>
-        <textarea class="small" id="p-keywords" placeholder="software engineer, backend, python"></textarea>
-        <div class="hint" id="kw-hint">Role words, e.g. software engineer, data analyst, marketing.</div></div>
+        <textarea class="small" id="p-keywords" placeholder="research, kinesiology, clinic, hospital, french, bilingual, tutor"></textarea>
+        <div class="hint" id="kw-hint">Field words, e.g. research, rehabilitation, French, bilingual, teaching.</div></div>
       <div class="field"><label for="p-exclude">Leave out titles with</label>
-        <textarea class="small" id="p-exclude" placeholder="senior, staff, manager"></textarea>
+        <textarea class="small" id="p-exclude" placeholder="senior, manager, physician, registered nurse"></textarea>
         <div class="hint">“intern” here is ignored when you want internships.</div></div>
       <div class="field"><label for="p-locations">Locations</label>
-        <textarea class="small" id="p-locations" placeholder="Toronto, New York, Remote - US"></textarea></div>
+        <textarea class="small" id="p-locations" placeholder="Ottawa, Gatineau, Ontario"></textarea>
+        <div class="hint">Leave empty for anywhere in your search area.</div></div>
       <div class="field"><label>&nbsp;</label>
         <label class="check"><input type="checkbox" id="p-remote"> Remote jobs are OK anywhere</label>
         <div class="field" style="margin-top:12px"><label for="p-age">Ignore postings older than (days)</label>
@@ -226,11 +241,11 @@ textarea { width: 100%; min-height: 460px; font: 13px/1.5 ui-monospace, SFMono-R
     <p class="sub">The AI weighs these when scoring each job.</p>
     <div class="fields">
       <div class="field"><label for="p-seniority">Level</label>
-        <input type="text" id="p-seniority" placeholder="e.g. mid to senior, or internship / co-op student">
+        <input type="text" id="p-seniority" placeholder="e.g. student (summer, part-time, co-op)">
         <div class="hint" id="seniority-hint"></div></div>
       <div class="field"><label for="p-workmode">Work mode</label>
-        <input type="text" id="p-workmode" placeholder="e.g. remote or hybrid in Toronto"></div>
-      <div class="field"><label for="p-salary">Minimum salary (USD per year)</label>
+        <input type="text" id="p-workmode" placeholder="e.g. in person or hybrid"></div>
+      <div class="field"><label for="p-salary">Minimum yearly pay</label>
         <input type="number" id="p-salary" min="0" step="1000" placeholder="Leave blank to skip">
         <div class="hint" id="salary-hint"></div></div>
       <div class="field"><label for="p-avoid">Industries to avoid</label>
@@ -243,18 +258,39 @@ textarea { width: 100%; min-height: 460px; font: 13px/1.5 ui-monospace, SFMono-R
   </div>
 
   <div class="panel">
-    <h3>Companies to watch</h3>
-    <p class="sub">Use the name from each company's careers page address, e.g. <b>stripe</b> in job-boards.greenhouse.io/<b>stripe</b>.</p>
+    <h3>Where to search</h3>
+    <p class="sub"><b>Adzuna</b> searches thousands of employers: hospitals, clinics, universities, school boards and governments. You apply on the employer's site; jobbot writes the resume and cover letter.</p>
     <div class="fields">
-      <div class="field"><label for="p-gh">Greenhouse</label><textarea class="small" id="p-gh" placeholder="stripe, airbnb"></textarea>
+      <div class="field full"><label class="check"><input type="checkbox" id="p-adzuna"> Search Adzuna</label></div>
+      <div class="field"><label for="p-az-country">Country</label>
+        <select id="p-az-country" style="width:100%">
+          <option value="ca">Canada</option><option value="us">United States</option><option value="gb">United Kingdom</option>
+          <option value="fr">France</option><option value="au">Australia</option><option value="de">Germany</option>
+        </select></div>
+      <div class="field"><label for="p-az-where">City or province</label>
+        <input type="text" id="p-az-where" placeholder="e.g. Ottawa (leave empty for the whole country)"></div>
+      <div class="field"><label for="p-az-id">Adzuna app ID</label><input type="text" id="p-az-id" autocomplete="off" spellcheck="false"></div>
+      <div class="field"><label for="p-az-key">Adzuna app key</label><input type="password" id="p-az-key" autocomplete="off" spellcheck="false">
+        <div class="hint">Free: register at <a href="https://developer.adzuna.com" target="_blank" rel="noopener">developer.adzuna.com</a>, then copy both values here. Saved only in config.yaml on this computer.</div></div>
+      <div class="field full"><label for="p-az-searches">Searches</label>
+        <textarea class="small" id="p-az-searches" placeholder="research assistant, kinesiology, physiotherapy assistant, french tutor, bilingual government"></textarea>
+        <div class="hint">Each one is a separate search. Keep them short (1–3 words); every word must appear in the posting.</div></div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h3>Specific employers</h3>
+    <p class="sub">Optional. For employers whose careers page runs on Greenhouse, Lever or Ashby (jobbot can fill in their forms). Use the name from the page address, e.g. <b>name</b> in job-boards.greenhouse.io/<b>name</b>.</p>
+    <div class="fields">
+      <div class="field"><label for="p-gh">Greenhouse</label><textarea class="small" id="p-gh" placeholder="employer names"></textarea>
         <div class="hint">job-boards.greenhouse.io/<i>name</i></div></div>
-      <div class="field"><label for="p-lever">Lever</label><textarea class="small" id="p-lever" placeholder="plaid"></textarea>
+      <div class="field"><label for="p-lever">Lever</label><textarea class="small" id="p-lever" placeholder="employer names"></textarea>
         <div class="hint">jobs.lever.co/<i>name</i></div></div>
-      <div class="field"><label for="p-ashby">Ashby</label><textarea class="small" id="p-ashby" placeholder="ramp, notion"></textarea>
+      <div class="field"><label for="p-ashby">Ashby</label><textarea class="small" id="p-ashby" placeholder="employer names"></textarea>
         <div class="hint">jobs.ashbyhq.com/<i>name</i></div></div>
-      <div class="field"><label>Remotive (remote jobs from many companies)</label>
+      <div class="field"><label>Remotive (remote jobs, mostly tech)</label>
         <label class="check"><input type="checkbox" id="p-remotive"> Search Remotive too</label>
-        <input type="text" id="p-remotive-q" style="margin-top:8px" placeholder="Searches, e.g. python developer, data intern">
+        <input type="text" id="p-remotive-q" style="margin-top:8px" placeholder="Searches, e.g. french tutor">
         <div class="hint">You apply to these yourself; jobbot prepares the resume.</div></div>
     </div>
   </div>
@@ -303,10 +339,13 @@ async function refresh() {
   b.title = ai.message;
   const msgs = [];
   if (summary.profile_error) msgs.push(`Your profile has a problem: ${esc(summary.profile_error)} Fix it on the Settings tab.`);
+  if (summary.example_profile) msgs.push(`Your profile is still the example. Open <b>Settings → Your profile</b>, replace the example details with yours, and delete the line <code>example_profile: true</code>. Until then jobbot can find jobs but won't score them or write resumes.`);
+  if (summary.adzuna.enabled && !summary.adzuna.has_keys) msgs.push(`Adzuna needs your free app ID and key. Get them at <a href="https://developer.adzuna.com" target="_blank" rel="noopener">developer.adzuna.com</a>, then add them on the <a href="#" onclick="show('prefs');return false">Preferences</a> tab.`);
   if (!ai.ready) msgs.push(`The AI isn't ready: ${esc(ai.message)}`);
   setup.innerHTML = msgs.map(m => `<div class="notice warn" style="margin:0 0 14px">${m}</div>`).join("");
   if (!$("#mode").dataset.touched) $("#mode").value = summary.apply_mode;
-  const fb = $("#focus"), FL = {internships: "Internships & co-ops", both: "Jobs & internships"};
+  renderElsewhere();
+  const fb = $("#focus"), FL = {internships: "Internships & co-ops", students: "Student jobs"};
   fb.hidden = !FL[summary.focus]; fb.textContent = FL[summary.focus] || "";
   if (firstLoad) {  // open on the first list that has something in it
     firstLoad = false;
@@ -353,7 +392,8 @@ function jobCard(j) {
   const links = [`<a href="${esc(j.url)}" target="_blank" rel="noopener">Job posting ↗</a>`];
   if (j.resume) links.push(`<a href="/files/${encodeURI(j.resume)}" target="_blank">Resume (PDF)</a>`);
   if (j.cover_letter) links.push(`<a href="/files/${encodeURI(j.cover_letter)}" target="_blank">Cover letter</a>`);
-  if (j.status === "needs_manual" || !j.can_auto_apply) links.push(`<a href="${esc(j.apply_url)}" target="_blank" rel="noopener">Application form ↗</a>`);
+  if ((j.status === "needs_manual" || !j.can_auto_apply) && j.apply_url !== j.url) links.push(`<a href="${esc(j.apply_url)}" target="_blank" rel="noopener">Application form ↗</a>`);
+  if (j.source === "adzuna") links.push(`<span class="via">Jobs by <a href="${ADZUNA_SITE[summary.adzuna.country] || "https://www.adzuna.com"}" target="_blank" rel="noopener">Adzuna</a></span>`);
   const k = esc(JSON.stringify(j.key));
   const acts = [];
   if (j.status === "ready" && j.can_auto_apply) acts.push(`<button class="primary" onclick='applyOne(${k})'>Apply now</button>`);
@@ -361,7 +401,7 @@ function jobCard(j) {
   if (!["skipped", "applied"].includes(j.status)) acts.push(`<button class="ghost" onclick='mark(${k}, "skipped")'>Skip</button>`);
   return `<div class="job"><div class="score ${cls}">${sc}</div><div>
     <h4>${esc(j.title)}<span class="status ${esc(j.status)}">${esc(LABELS[j.status] || j.status)}</span>${j.internship ? `<span class="tag">Internship / co-op</span>` : ""}</h4>
-    <div class="meta">${esc(j.company)} · ${esc(j.location || "Location not listed")}${j.remote ? " · Remote" : ""}</div>
+    <div class="meta">${esc(j.company)} · ${esc(j.location || "Location not listed")}${j.remote ? " · Remote" : ""}${j.salary ? " · " + esc(j.salary) : ""}</div>
     ${why ? `<ul class="why">${why}</ul>` : ""}
     ${j.note ? `<div class="note">${esc(j.note)}</div>` : ""}
     <div class="links">${links.join("")}</div></div>
@@ -403,7 +443,7 @@ async function answer(a) { await post("/api/review", {answer: a}); poll(); }
 
 const HELP = {
   profile: "Your master resume. Put in every role, strong bullet point and skill. jobbot picks from and rephrases this for each job and never adds anything that isn't here. Keep the same layout: “key: value”, and lines starting with “- ” for lists.",
-  config: "What to search for: keywords, locations, the companies to watch (the name from their careers page address), which AI to use, and how applying works."
+  config: "Everything on the Preferences tab plus which AI to use and how applying works. Most people only need the Preferences tab."
 };
 async function loadSettings(which) {
   settingsWhich = which;
@@ -416,6 +456,19 @@ async function saveSettings() {
   const r = await post("/api/settings/" + settingsWhich, {text: $("#editor").value});
   $("#set-msg").innerHTML = r.ok ? `<span class="saved">Saved.</span>` : `<span class="err">${esc(r.data.error || "Couldn't save.")}</span>`;
   if (r.ok) refresh();
+}
+
+const ADZUNA_SITE = {ca: "https://www.adzuna.ca", us: "https://www.adzuna.com", gb: "https://www.adzuna.co.uk",
+                     fr: "https://www.adzuna.fr", au: "https://www.adzuna.com.au", de: "https://www.adzuna.de"};
+function renderElsewhere() {
+  const a = summary.adzuna;
+  if (a.country !== "ca") { $("#elsewhere").innerHTML = ""; return; }
+  const qs = (a.searches.length ? a.searches : ["bilingual student"]).slice(0, 8);
+  const link = q => `<a href="https://www.jobbank.gc.ca/jobsearch/jobsearch?searchstring=${encodeURIComponent(q)}&locationstring=${encodeURIComponent(a.where)}" target="_blank" rel="noopener">${esc(q)} ↗</a>`;
+  $("#elsewhere").innerHTML = `<details class="panel elsewhere"><summary><b>Other places to look</b> <span class="via">· government and student job boards jobbot can't search for you</span></summary>
+    <p class="help" style="margin-top:10px">Job Bank (Government of Canada) searches for your terms${a.where ? " in " + esc(a.where) : ""}:</p>
+    <div class="links">${qs.map(link).join("")}</div>
+    <p class="help" style="margin-top:12px">Also check: the <b>Federal Student Work Experience Program (FSWEP)</b> and other student programs on GC Jobs (many need French), your province's public service student jobs, your university's career centre and research job boards, and local school boards for French tutoring or monitor roles.</p></details>`;
 }
 
 // ---- search & filters (remembered in this browser)
@@ -447,24 +500,26 @@ async function loadPrefs() {
   $("#p-avoid").value = csv(p.avoid); $("#p-minscore").value = p.min_score; $("#p-maxscore").value = p.max_jobs_to_score;
   $("#p-gh").value = csv(p.greenhouse); $("#p-lever").value = csv(p.lever); $("#p-ashby").value = csv(p.ashby);
   $("#p-remotive").checked = p.remotive_enabled; $("#p-remotive-q").value = csv(p.remotive_searches);
+  document.querySelectorAll("input[name=schedule]").forEach(x => x.checked = p.schedule.includes(x.value));
+  $("#p-targets").value = csv(p.targets);
+  $("#p-adzuna").checked = p.adzuna_enabled; $("#p-az-country").value = p.adzuna_country; $("#p-az-where").value = p.adzuna_where;
+  $("#p-az-id").value = p.adzuna_app_id; $("#p-az-key").value = p.adzuna_app_key; $("#p-az-searches").value = csv(p.adzuna_searches);
   focusChanged();
 }
 function focusChanged() {
   const f = (document.querySelector("input[name=focus]:checked") || {}).value;
-  $("#term-field").hidden = f === "jobs";
+  $("#term-field").hidden = $("#schedule-field").hidden = f === "jobs";
   $("#salary-hint").textContent = f !== "jobs" && +$("#p-salary").value >= 40000
     ? "Internships usually pay less than full-time roles. Lower or clear this so they aren't scored down." : "";
-  $("#kw-hint").textContent = f === "internships"
-    ? "Field words work best for internships, e.g. software, data, marketing, engineering."
-    : "Role words, e.g. software engineer, data analyst, marketing.";
+  $("#kw-hint").textContent = "Field words, e.g. research, rehabilitation, French, bilingual, teaching.";
 }
 document.querySelectorAll("input[name=focus]").forEach(x => x.addEventListener("change", () => {
   focusChanged();
   // A level like "senior IC" would make every internship score badly.
   const f = document.querySelector("input[name=focus]:checked").value, s = $("#p-seniority");
-  if (f === "internships" && !/intern|co-?op|student/i.test(s.value)) {
-    $("#seniority-hint").textContent = s.value.trim() ? `Changed from “${s.value.trim()}” to match internships. Edit if needed.` : "";
-    s.value = "internship / co-op student";
+  if (f !== "jobs" && !/intern|co-?op|student/i.test(s.value)) {
+    $("#seniority-hint").textContent = s.value.trim() ? `Changed from “${s.value.trim()}” to match student work. Edit if needed.` : "";
+    s.value = f === "internships" ? "internship / co-op student" : "student (summer, part-time, co-op)";
   }
 }));
 async function savePrefs() {
@@ -476,6 +531,10 @@ async function savePrefs() {
     avoid: $("#p-avoid").value, min_score: $("#p-minscore").value, max_jobs_to_score: $("#p-maxscore").value,
     greenhouse: $("#p-gh").value, lever: $("#p-lever").value, ashby: $("#p-ashby").value,
     remotive_enabled: $("#p-remotive").checked, remotive_searches: $("#p-remotive-q").value,
+    schedule: [...document.querySelectorAll("input[name=schedule]:checked")].map(x => x.value),
+    targets: $("#p-targets").value,
+    adzuna_enabled: $("#p-adzuna").checked, adzuna_country: $("#p-az-country").value, adzuna_where: $("#p-az-where").value,
+    adzuna_app_id: $("#p-az-id").value, adzuna_app_key: $("#p-az-key").value, adzuna_searches: $("#p-az-searches").value,
   };
   const r = await post("/api/preferences", body);
   $("#prefs-msg").innerHTML = r.ok ? `<span class="saved">Saved. Click <b>Find jobs</b> to search with these.</span>`

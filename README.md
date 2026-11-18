@@ -3,6 +3,10 @@
 Finds jobs, scores how well you fit each one, writes a tailored resume (and cover letter when the
 application accepts one), and fills out or submits the application.
 
+The example settings are set up for a **Kinesiology + French student in Canada** looking for
+student jobs (summer, part-time, co-op): research assistant and clinical/hospital roles, French
+teaching and tutoring, and government jobs that need French. Change them on the Preferences tab.
+
 ```
 find  ──►  filter  ──►  Claude scores fit  ──►  prepare: tailored resume PDF/DOCX  ──►  apply: fill form ──► you (or auto) submit
 ```
@@ -58,20 +62,37 @@ for: keywords, locations, companies, level, salary and more. It saves into `conf
 
 Use `--port 8080` to pick another port, or `--no-browser` to skip opening a tab.
 
-### Internships and co-ops
+### Student jobs, internships and co-ops
 
 Set **What are you looking for?** on the Preferences tab (or `search.focus` in config.yaml):
 
 | focus | what happens |
 |---|---|
-| `jobs` (default) | Regular roles; titles with "intern" etc. are filtered out by `exclude_keywords`. |
-| `internships` | Only internships, co-ops and student roles. Scoring judges eligibility (enrolment, graduation date, term dates) instead of years of experience. |
-| `both` | Everything; internship postings are judged as internships. |
+| `students` | Student-friendly work of any kind: summer, part-time during school, co-ops, internships. The AI judges you as a student and marks jobs that need a finished degree, a professional licence (e.g. registered kinesiologist, nurse) or years of experience as not worth applying. Resumes list Education first. |
+| `internships` | Only postings whose title says internship, co-op or student. |
+| `jobs` | Regular roles after graduation. |
 
-Put your term in `preferences.internship_term` (e.g. "Summer 2027, 4-month co-op") and your expected
-graduation date in your profile's education `details`. Resumes for internship postings list
-Education first. After changing the focus, **Find jobs** looks again at postings it filtered out
-before.
+Tell it when you can work (`preferences.schedule`: summer, part-time, co-op), your term
+(`preferences.internship_term`), and the kinds of work you want (`preferences.targets`). Put your
+expected graduation in your profile's education `details`. List your languages under `languages`:
+they appear on every resume, and postings that require French (e.g. bilingual government jobs)
+are scored against them. After changing the focus, **Find jobs** looks again at postings it
+filtered out before.
+
+### Adzuna (hospitals, universities, school boards, governments)
+
+Greenhouse, Lever and Ashby are mostly used by tech companies. For healthcare, research,
+teaching and government jobs, turn on **Adzuna** on the Preferences tab: register for a free
+app ID and key at https://developer.adzuna.com and paste them in. Each search term runs
+separately in your country and city. Adzuna only provides a snippet of each description, so
+open the posting before you apply; you apply on the employer's site, and jobbot prepares the
+resume and cover letter. In Canada the Jobs tab also links Job Bank searches for your terms.
+
+### Your profile
+
+`profile.example.yaml` is an example student. Replace everything with your own details, then
+delete the `example_profile: true` line. Until you do, jobbot finds jobs but won't score them,
+write resumes or fill applications.
 
 ## Command line
 

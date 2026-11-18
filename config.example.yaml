@@ -17,27 +17,49 @@ ollama:
   timeout_seconds: 900       # local models can be slow, especially without a GPU
 
 search:
-  # jobs        = regular roles (titles with "intern" etc. are excluded below)
-  # internships = only internships, co-ops and student positions
-  # both        = everything; internship titles are never excluded
-  focus: jobs
-  # A job passes if any keyword is in the title (or 2+ appear in the description).
-  keywords: ["software engineer", "backend", "python", "platform engineer"]
-  exclude_keywords: ["staff", "principal", "director", "intern", "manager"]
-  locations: ["New York", "NYC", "Remote - US", "United States"]
+  # jobs        = regular roles (titles with "intern" etc. can be excluded below)
+  # students    = student-friendly work: summer jobs, part-time during school, co-ops, internships.
+  #               Scored on student eligibility instead of years of experience; resumes list
+  #               Education first.
+  # internships = only postings whose title says internship / co-op / student
+  focus: students
+  # A job passes if any keyword is in its title (or appears in the description).
+  # Tuned for Kinesiology + French: research, clinical/medical, French teaching, bilingual government.
+  keywords: [research, kinesiology, kinesiologist, rehabilitation, physiotherapy, exercise, health,
+             clinic, clinical, hospital, medical, patient, lab, laboratory, french, bilingual,
+             francophone, tutor, teacher, teaching, instructor, educator, government, student]
+  # Titles needing a finished degree or licence, plus unrelated fields.
+  exclude_keywords: [senior, manager, director, principal, chief, physician, surgeon, pharmacist,
+                     dentist, registered nurse, nurse practitioner, psychologist, engineer,
+                     developer, software, sales, driver]
+  locations: []              # empty = anywhere in the search area; or e.g. [Ottawa, Toronto, Ontario]
   remote_ok: true            # remote jobs pass even if location doesn't match
   max_age_days: 30
 
-# Company "slugs" = the part of their careers URL:
-#   job-boards.greenhouse.io/<slug>    jobs.lever.co/<slug>    jobs.ashbyhq.com/<slug>
-# Add the companies you want to work for. Unknown slugs are reported and skipped.
+# Where jobs come from.
 sources:
-  greenhouse: [stripe, airbnb, datadog, figma, discord]
-  lever: [plaid, palantir]
-  ashby: [ramp, notion, linear]
-  remotive:                  # remote-job aggregator: discovery + documents only, you apply manually
+  # Adzuna searches thousands of employers (hospitals, universities, school boards, governments).
+  # Get a free app_id and app_key at https://developer.adzuna.com (Register), then paste them here
+  # or on the Preferences tab. You apply on the employer's site; jobbot prepares the resume and
+  # cover letter.
+  adzuna:
+    enabled: true
+    country: ca              # ca, us, gb, fr, ...
+    where: ""                # city or province, e.g. Ottawa; empty = whole country
+    app_id: ""
+    app_key: ""
+    searches: [research assistant, kinesiology, rehabilitation assistant, physiotherapy assistant,
+               clinical research, hospital student, summer student health, french tutor,
+               french teacher, bilingual student, bilingual government]
+  # Company "slugs" = the part of their careers URL:
+  #   job-boards.greenhouse.io/<slug>    jobs.lever.co/<slug>    jobs.ashbyhq.com/<slug>
+  # For specific employers that use these systems (jobbot can fill their forms).
+  greenhouse: []
+  lever: []
+  ashby: []
+  remotive:                  # remote-job aggregator (mostly tech): discovery only
     enabled: false
-    searches: ["python developer"]
+    searches: []
 
 matching:
   min_score: 70              # Claude's 0-100 fit score needed to prepare an application

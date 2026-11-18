@@ -14,6 +14,7 @@ import io
 import json
 import logging
 import os
+import re
 import shutil
 import threading
 import time
@@ -28,7 +29,7 @@ from flask import Flask, abort, jsonify, request, send_from_directory
 
 from jobbot.config import REQUIRED_PROFILE_KEYS, load_config, load_profile
 from jobbot.db import DB
-from jobbot.filters import FOCUSES, is_internship
+from jobbot.filters import FOCUSES, is_internship, normalize_focus
 
 log = logging.getLogger(__name__)
 STATIC = Path(__file__).parent / "static"
@@ -201,6 +202,7 @@ def _job_row(db: DB, r, out_root: Path) -> dict:
         "title": j.title, "company": j.company, "location": j.location,
         "remote": j.remote, "url": j.url, "apply_url": j.apply_url, "source": j.source,
         "internship": is_internship(j), "posted": j.posted_at, "first_seen": r["first_seen"],
+        "salary": j.salary,
         "can_auto_apply": j.can_auto_apply, "note": r["note"], "updated": r["updated"],
         "reasons": a.get("reasons", []),
         "concerns": a.get("missing_requirements", []) + a.get("red_flags", []),
@@ -248,8 +250,9 @@ def read_preferences(cfg: dict, profile: dict) -> dict:
     s, m, src = cfg["search"], cfg["matching"], cfg["sources"]
     prefs = profile.get("preferences") or {}
     rem = src.get("remotive") or {}
+    ad = src.get("adzuna") or {}
     return {
-        "focus": s.get("focus") or "jobs",
+        "focus": normalize_focus(s.get("focus")),
         "keywords": _str_list(s.get("keywords")),
         "exclude_keywords": _str_list(s.get("exclude_keywords")),
         "locations": _str_list(s.get("locations")),
@@ -267,6 +270,14 @@ def read_preferences(cfg: dict, profile: dict) -> dict:
         "work_mode": prefs.get("work_mode") or "",
         "avoid": _str_list(prefs.get("avoid")),
         "internship_term": prefs.get("internship_term") or "",
+        "schedule": _str_list(prefs.get("schedule")),
+        "targets": _str_list(prefs.get("targets")),
+        "adzuna_enabled": bool(ad.get("enabled")),
+        "adzuna_country": (ad.get("country") or "ca").lower(),
+        "adzuna_where": ad.get("where") or "",
+        "adzuna_app_id": ad.get("app_id") or "",
+        "adzuna_app_key": ad.get("app_key") or "",
+        "adzuna_searches": _str_list(ad.get("searches")),
     }
 
 
@@ -298,14 +309,24 @@ def validate_preferences(b: dict) -> tuple[dict, str | None]:
     if not out["focus"]:
         return {}, "Pick what you're looking for: jobs, internships or both."
     for k in ("keywords", "exclude_keywords", "locations", "greenhouse", "lever", "ashby",
-              "remotive_searches", "avoid"):
+              "remotive_searches", "avoid", "targets", "adzuna_searches"):
         out[k] = _str_list(b.get(k))
-    for k in ("seniority", "work_mode", "internship_term"):
+    out["schedule"] = [x for x in _str_list(b.get("schedule"))
+                       if x in ("summer", "part-time", "co-op", "after graduation")]
+    for k in ("seniority", "work_mode", "internship_term", "adzuna_where", "adzuna_app_id",
+              "adzuna_app_key"):
         out[k] = str(b.get(k) or "").strip()
+    out["adzuna_country"] = str(b.get("adzuna_country") or "ca").strip().lower()
+    if not re.fullmatch(r"[a-z]{2}", out["adzuna_country"]):
+        return {}, "Adzuna country should be a two-letter code like ca."
     out["remote_ok"] = bool(b.get("remote_ok"))
     out["remotive_enabled"] = bool(b.get("remotive_enabled"))
-    if not (out["greenhouse"] or out["lever"] or out["ashby"] or out["remotive_enabled"]):
-        return {}, "Add at least one company to watch, or turn on Remotive."
+    out["adzuna_enabled"] = bool(b.get("adzuna_enabled"))
+    if out["adzuna_enabled"] and not out["adzuna_searches"]:
+        return {}, "Add at least one Adzuna search, e.g. research assistant."
+    if not (out["greenhouse"] or out["lever"] or out["ashby"] or out["remotive_enabled"]
+            or out["adzuna_enabled"]):
+        return {}, "Turn on Adzuna or add at least one employer to watch."
     return out, None
 
 
@@ -330,6 +351,13 @@ def write_preferences(config_path: Path, profile_path: Path, p: dict):
     rem = _section(src, "remotive")
     rem["enabled"] = p["remotive_enabled"]
     _set_list(rem, "searches", p["remotive_searches"])
+    ad = _section(src, "adzuna")
+    ad["enabled"] = p["adzuna_enabled"]
+    ad["country"] = p["adzuna_country"]
+    ad["where"] = p["adzuna_where"]
+    ad["app_id"] = p["adzuna_app_id"]
+    ad["app_key"] = p["adzuna_app_key"]
+    _set_list(ad, "searches", p["adzuna_searches"])
 
     prof = y.load(profile_path.read_text())
     pr = _section(prof, "preferences")
@@ -341,6 +369,8 @@ def write_preferences(config_path: Path, profile_path: Path, p: dict):
     pr["work_mode"] = p["work_mode"]
     _set_list(pr, "avoid", p["avoid"])
     pr["internship_term"] = p["internship_term"]
+    _set_list(pr, "schedule", p["schedule"])
+    _set_list(pr, "targets", p["targets"])
 
     # Write both only after both serialise, so a failure can't leave one half-saved.
     bufs = []
@@ -399,11 +429,13 @@ def create_app(config_path: str | Path) -> Flask:
             cfg = load_config(config_path)
         except SystemExit as e:
             return jsonify(error=str(e.code), config_ok=False)
-        profile_error = None
+        profile_error, example = None, False
         try:
-            load_profile(cfg["profile"])
+            example = bool(load_profile(cfg["profile"]).get("example_profile"))
         except SystemExit as e:
             profile_error = str(e.code)
+        from jobbot.sources import adzuna_keys
+        ad = cfg["sources"].get("adzuna") or {}
         db = db_for(cfg)
         out_root = Path(cfg["output_dir"])
         want = request.args.get("status")
@@ -414,7 +446,11 @@ def create_app(config_path: str | Path) -> Flask:
             config_ok=True, profile_error=profile_error,
             counts=db.counts(), ai=ai_status(cfg),
             apply_mode=cfg["apply"]["mode"], applied_today=db.applied_today(),
-            focus=cfg["search"].get("focus") or "jobs",
+            focus=normalize_focus(cfg["search"].get("focus")),
+            example_profile=example,
+            adzuna={"enabled": bool(ad.get("enabled")), "has_keys": all(adzuna_keys(ad)),
+                    "country": (ad.get("country") or "ca").lower(), "where": ad.get("where") or "",
+                    "searches": _str_list(ad.get("searches"))},
             jobs=[_job_row(db, r, out_root) for r in rows],
         )
 

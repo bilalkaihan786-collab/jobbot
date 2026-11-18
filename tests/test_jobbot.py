@@ -21,7 +21,7 @@ FIX = Path(__file__).parent / "fixtures"
 
 @pytest.fixture
 def profile():
-    return load_profile(ROOT / "profile.example.yaml")
+    return load_profile(FIX / "profile_engineer.yaml")
 
 
 def make_job(**kw):
@@ -281,8 +281,8 @@ def test_make_llm_auto_picks_provider(profile, monkeypatch):
 def web(tmp_path):
     import shutil, threading
     from jobbot.web import create_app
-    shutil.copy(ROOT / "config.example.yaml", tmp_path / "config.yaml")
-    shutil.copy(ROOT / "profile.example.yaml", tmp_path / "profile.yaml")
+    shutil.copy(FIX / "config_engineer.yaml", tmp_path / "config.yaml")
+    shutil.copy(FIX / "profile_engineer.yaml", tmp_path / "profile.yaml")
     app = create_app(tmp_path / "config.yaml")
     return app, app.test_client(), tmp_path
 
@@ -407,7 +407,7 @@ def test_web_preferences_round_trip_keeps_comments(web):
     bad = dict(p2, min_score="150")
     assert "Minimum fit score" in c.post("/api/preferences", json=bad, headers=H).get_json()["error"]
     none = dict(p2, greenhouse="", lever="", ashby="", remotive_enabled=False)
-    assert "at least one company" in c.post("/api/preferences", json=none, headers=H).get_json()["error"]
+    assert "at least one employer" in c.post("/api/preferences", json=none, headers=H).get_json()["error"]
 
 
 def test_find_revives_filtered_jobs_after_focus_change(tmp_path, monkeypatch, capsys):
@@ -426,3 +426,137 @@ def test_find_revives_filtered_jobs_after_focus_change(tmp_path, monkeypatch, ca
     cli.cmd_find(cfg, {}, db, SimpleNamespace())
     assert db.get(intern.key)["status"] == "new"
     assert "1 earlier postings now match" in capsys.readouterr().out
+
+
+# ------------------------------------------------------------ student / Adzuna setup
+
+ADZUNA_SAMPLE = {"results": [
+    {"id": "4410", "title": " Research Assistant - <strong>Kinesiology</strong> Lab ",
+     "company": {"display_name": "University of Ottawa"},
+     "location": {"area": ["Canada", "Ontario", "Ottawa"], "display_name": "Ottawa, Ontario"},
+     "description": "Bilingual (English/French) student to support exercise studies...",
+     "created": "2026-11-10T12:00:00Z", "redirect_url": "https://www.adzuna.ca/land/ad/4410",
+     "contract_time": "part_time", "salary_min": 18, "salary_max": 22, "salary_is_predicted": "0"},
+    {"id": "4411", "title": "French Tutor", "company": {},
+     "location": {"area": ["Canada", "Quebec"], "display_name": "Quebec"},
+     "description": "Remote tutoring", "created": "2026-11-12T00:00:00Z",
+     "redirect_url": "https://www.adzuna.ca/land/ad/4411", "salary_min": 40000,
+     "salary_is_predicted": "1"},
+]}
+
+
+def test_parse_adzuna():
+    from jobbot.sources import parse_adzuna
+    a, b = parse_adzuna(ADZUNA_SAMPLE, "ca")
+    assert a.source == "adzuna" and a.key == "adzuna:University of Ottawa:4410"
+    assert a.title == "Research Assistant - Kinesiology Lab"           # HTML and padding removed
+    assert a.location == "Ottawa, Ontario, Canada"
+    assert a.description.startswith("[part-time] Bilingual")
+    assert a.salary == "18-22 CAD" and a.url == a.apply_url and not a.can_auto_apply
+    assert b.company == "Employer not listed" and b.location == "Quebec, Canada"
+    assert b.salary == "" and b.remote                                   # predicted salary skipped
+
+
+def test_fetch_all_adzuna(monkeypatch, caplog):
+    import jobbot.sources as src
+    from jobbot.config import DEFAULTS
+    calls = []
+
+    def fake_get(url, params=None):
+        calls.append((url, params))
+        return ADZUNA_SAMPLE
+    monkeypatch.setattr(src, "_get_json", fake_get)
+    monkeypatch.delenv("ADZUNA_APP_ID", raising=False)
+    monkeypatch.delenv("ADZUNA_APP_KEY", raising=False)
+    ad = {"enabled": True, "country": "ca", "where": "Ottawa", "app_id": "", "app_key": "",
+          "searches": ["research assistant", "french tutor"]}
+    cfg = {**DEFAULTS, "sources": {**DEFAULTS["sources"], "adzuna": ad}}
+    assert src.fetch_all(cfg) == [] and not calls
+    assert "developer.adzuna.com" in caplog.text
+    ad.update(app_id="id1", app_key="key1")
+    jobs = src.fetch_all(cfg)
+    assert len(calls) == 2 and len(jobs) == 2                            # duplicates dropped
+    url, params = calls[0]
+    assert url == "https://api.adzuna.com/v1/api/jobs/ca/search/1"
+    assert params["what"] == "research assistant" and params["where"] == "Ottawa"
+    assert params["app_id"] == "id1" and params["max_days_old"] == 30
+
+
+def test_students_focus_filters():
+    s = {"keywords": ["research", "french", "clinic"], "exclude_keywords": ["senior", "physician"],
+         "locations": [], "remote_ok": True, "max_age_days": 0, "focus": "students"}
+    assert passes(make_job(title="Clinical Research Assistant"), s)[0]       # no "intern" needed
+    assert passes(make_job(title="Summer Camp Counsellor", description="Bilingual French camp"), s)[0]
+    assert not passes(make_job(title="Senior Research Scientist"), s)[0]
+    assert not passes(make_job(title="Physician, Clinic"), s)[0]
+    assert not passes(make_job(title="Cashier", description="retail"), s)[0]
+    from jobbot.filters import normalize_focus
+    assert normalize_focus("both") == "students" and normalize_focus(None) == "jobs"
+
+
+def test_student_prompt_mentions_licences_and_languages(profile, monkeypatch):
+    from jobbot.llm import OllamaLLM
+    good = ('{"score": 70, "worth_applying": true, "reasons": ["r"], '
+            '"missing_requirements": [], "red_flags": []}')
+    sent = _fake_ollama(monkeypatch, [good])
+    OllamaLLM(profile, focus="students").assess_fit(make_job(source="adzuna"))
+    prompt = sent[0]["messages"][1]["content"]
+    assert "STUDENT" in prompt and "licence" in prompt and "languages" in prompt
+    assert "snippet" in prompt                                           # Adzuna descriptions are partial
+
+
+def test_example_profile_and_languages():
+    from types import SimpleNamespace
+    import jobbot.cli as cli
+    p = load_profile(ROOT / "profile.example.yaml")
+    assert p["example_profile"] and "French (fluent, spoken and written)" in p["languages"]
+    cfg = load_config_example()
+    assert cfg["search"]["focus"] == "students" and cfg["sources"]["adzuna"]["enabled"]
+    assert "engineer" in cfg["search"]["exclude_keywords"]
+    d = documents.build_resume_data(p, TailoredResume(
+        headline="h", summary="s", skills=[], roles=[TailoredRole(experience_id="clinic", bullets=["b"])]),
+        education_first=True)
+    html = documents.resume_html(d)
+    assert "<h2>Languages</h2>" in html and "French (fluent" in html
+    assert html.index("Education") < html.index("Experience")
+
+
+def load_config_example():
+    from jobbot.config import load_config
+    return load_config(ROOT / "config.example.yaml")
+
+
+def test_example_profile_blocks_scoring_and_resumes(tmp_path, monkeypatch, capsys):
+    from types import SimpleNamespace
+    import jobbot.cli as cli
+    import jobbot.sources as sources
+    from jobbot.db import DB
+    p = load_profile(ROOT / "profile.example.yaml")
+    cfg = load_config_example()
+    db = DB(str(tmp_path / "j.db"))
+    monkeypatch.setattr(sources, "fetch_all", lambda c: [make_job(title="Clinical Research Assistant")])
+    monkeypatch.setattr(cli, "_llm", lambda *a: (_ for _ in ()).throw(AssertionError("no AI calls")))
+    cli.cmd_find(cfg, p, db, SimpleNamespace())
+    cli.cmd_prepare(cfg, p, db, SimpleNamespace(limit=None))
+    out = capsys.readouterr().out
+    assert "Skipping scoring" in out and out.count("still the example") == 2
+    assert db.counts() == {"new": 1}
+
+
+def test_web_adzuna_preferences(web):
+    app, c, tmp = web
+    p = c.get("/api/preferences").get_json()
+    p.update(focus="students", schedule=["summer", "part-time", "bogus"], targets="research, french teaching",
+             adzuna_enabled=True, adzuna_country="ca", adzuna_where="Ottawa", adzuna_app_id="abc",
+             adzuna_app_key="xyz", adzuna_searches="research assistant, french tutor",
+             greenhouse="", lever="", ashby="")
+    assert c.post("/api/preferences", json=p, headers=H).status_code == 200
+    p2 = c.get("/api/preferences").get_json()
+    assert p2["focus"] == "students" and p2["schedule"] == ["summer", "part-time"]
+    assert p2["adzuna_searches"] == ["research assistant", "french tutor"] and p2["adzuna_app_key"] == "xyz"
+    s = c.get("/api/summary").get_json()
+    assert s["adzuna"] == {"enabled": True, "has_keys": True, "country": "ca", "where": "Ottawa",
+                           "searches": ["research assistant", "french tutor"]}
+    assert s["example_profile"] is False
+    r = c.post("/api/preferences", json=dict(p2, adzuna_searches=""), headers=H)
+    assert "Adzuna search" in r.get_json()["error"]

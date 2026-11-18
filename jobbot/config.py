@@ -20,9 +20,11 @@ DEFAULTS: dict[str, Any] = {
         "locations": [],
         "remote_ok": True,
         "max_age_days": 30,
-        "focus": "jobs",            # jobs | internships | both
+        "focus": "jobs",            # jobs | students | internships
     },
-    "sources": {"greenhouse": [], "lever": [], "ashby": [], "remotive": {"enabled": False}},
+    "sources": {"greenhouse": [], "lever": [], "ashby": [], "remotive": {"enabled": False},
+                "adzuna": {"enabled": False, "country": "ca", "where": "", "app_id": "",
+                           "app_key": "", "searches": [], "results_per_page": 50}},
     "matching": {"min_score": 70, "max_jobs_to_score": 50},
     "documents": {"cover_letter": "when_accepted", "formats": ["pdf", "docx"]},
     "apply": {

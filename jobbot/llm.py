@@ -52,8 +52,9 @@ class BaseLLM:
     """Prompts and output checks shared by every backend. Subclasses implement _parse()."""
 
     def __init__(self, profile: dict, focus: str = "jobs"):
+        from jobbot.filters import normalize_focus
         self.profile = profile
-        self.focus = focus
+        self.focus = normalize_focus(focus)
         public = {k: v for k, v in profile.items() if k not in ("eeo",)}
         self.system_text = SYSTEM.format(
             profile=yaml.safe_dump(public, sort_keys=False, allow_unicode=True))
@@ -71,15 +72,30 @@ class BaseLLM:
 
     def _focus_note(self, job: Job) -> str:
         from jobbot.filters import is_internship
+        note = ""
+        if job.source == "adzuna":
+            note += ("Only a short snippet of this posting's description is available. Judge from "
+                     "what is shown and don't penalise details you can't see.\n\n")
+        return note + self._student_note(job)
+
+    def _student_note(self, job: Job) -> str:
+        from jobbot.filters import is_internship
+        if self.focus == "students":
+            sched = (self.profile.get("preferences") or {}).get("schedule") or []
+            sched = ", ".join(map(str, sched)) if isinstance(sched, list) else str(sched)
+            return ("The candidate is a STUDENT looking for student-friendly work"
+                    f"{' (' + sched + ')' if sched else ''}: summer jobs, part-time work during "
+                    "school, co-ops or internships. Judge them as a student: do not penalise "
+                    "limited professional experience. Set worth_applying=false if the role needs a "
+                    "completed degree, a professional licence or registration (e.g. a registered "
+                    "kinesiologist, nurse or teacher's certificate), or years of experience they "
+                    "don't have, or if its schedule clearly can't fit theirs.\n\n")
         if self.focus == "internships":
             return ("The candidate is looking ONLY for internships or co-op positions. Judge them "
                     "as an internship/co-op applicant: do not penalise limited professional "
                     "experience; do check eligibility (enrolment, year of study, graduation date, "
                     "work authorization) and that the term/dates fit their preferences. Set "
                     "worth_applying=false if this is not an internship or co-op.\n\n")
-        if self.focus == "both" and is_internship(job):
-            return ("This is an internship/co-op posting and the candidate is open to those: "
-                    "judge eligibility and term dates rather than years of experience.\n\n")
         return ""
 
     # -------------------------------------------------------------- tasks
@@ -91,16 +107,21 @@ class BaseLLM:
             f"{self._focus_note(job)}"
             "Assess how well this candidate fits this job. Score 0-100 where 70+ means a "
             "realistic shot at an interview. Be honest: penalise missing hard requirements "
-            "(years, degrees, clearances, required tech) and seniority mismatches. Set "
-            "worth_applying=false for any deal-breaker in red_flags."
+            "(years, degrees, licences, clearances, required skills) and seniority mismatches. "
+            "If the posting requires languages (e.g. bilingual English/French), check them "
+            "against the `languages` in the profile: meeting one is a strong plus, missing one "
+            "is a hard requirement gap. Use the candidate's `targets` preference to judge how "
+            "well the field matches. Set worth_applying=false for any deal-breaker in red_flags."
         )
         return self._parse(prompt, FitAssessment, effort="low", max_tokens=4000)
 
     def tailor_resume(self, job: Job) -> TailoredResume:
         from jobbot.filters import is_internship
-        student = ("- This is an internship/co-op application: keep the summary to 1-2 sentences "
-                   "on what the student brings, and include relevant projects.\n"
-                   if is_internship(job) else "")
+        student = ("- This is a student application (summer job, part-time, co-op or "
+                   "internship): keep the summary to 1-2 sentences on what the student brings, "
+                   "include relevant projects, and favour transferable experience (volunteering, "
+                   "tutoring, coaching, lab work) that fits the posting.\n"
+                   if is_internship(job) or self.focus in ("students", "internships") else "")
         prompt = (
             f"{self._job_block(job)}\n\n"
             "Tailor the candidate's resume for this job.\n"

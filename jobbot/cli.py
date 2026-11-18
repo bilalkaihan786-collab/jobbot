@@ -20,9 +20,18 @@ from pathlib import Path
 from jobbot import documents
 from jobbot.config import load_config, load_profile
 from jobbot.db import DB
-from jobbot.filters import passes
+from jobbot.filters import passes, student_focus
 
 log = logging.getLogger("jobbot")
+
+EXAMPLE_PROFILE_MSG = (
+    "Your profile is still the example (profile.yaml has `example_profile: true`).\n"
+    "Replace the example details with yours (Settings tab > Your profile on the web page),\n"
+    "then delete the `example_profile: true` line.")
+
+
+def _is_example(profile) -> bool:
+    return bool(profile.get("example_profile"))
 
 
 def _llm(cfg, profile):
@@ -58,6 +67,10 @@ def cmd_find(cfg, profile, db: DB, args):
     if revived:
         print(f"{revived} earlier postings now match your preferences.")
 
+    if _is_example(profile):
+        print("\nSkipping scoring: " + EXAMPLE_PROFILE_MSG)
+        return
+
     limit = cfg["matching"]["max_jobs_to_score"]
     if len(candidates) > limit:
         print(f"Scoring the first {limit} (matching.max_jobs_to_score); the rest stay 'new'.")
@@ -91,6 +104,9 @@ def _make_cover_letter(cfg, profile, llm, job):
 
 
 def cmd_prepare(cfg, profile, db: DB, args):
+    if _is_example(profile):
+        print(EXAMPLE_PROFILE_MSG)
+        return
     rows = db.by_status("scored")
     if args.limit:
         rows = rows[: args.limit]
@@ -104,8 +120,9 @@ def cmd_prepare(cfg, profile, db: DB, args):
         print(f"Preparing {job.title} @ {job.company} (score {r['score']})")
         try:
             t = llm.tailor_resume(job)
-            pdf = documents.write_resume(profile, job, t, cfg["output_dir"],
-                                         cfg["documents"]["formats"])
+            pdf = documents.write_resume(
+                profile, job, t, cfg["output_dir"], cfg["documents"]["formats"],
+                education_first=True if student_focus(cfg["search"].get("focus")) else None)
             fields = {"status": "ready", "resume_path": str(pdf)}
             # 'always' = make one now. 'when_accepted' = made at apply time only if the
             # form has a cover-letter field (or now, for sources we can't auto-apply to).
@@ -126,6 +143,9 @@ def cmd_prepare(cfg, profile, db: DB, args):
 
 def cmd_apply(cfg, profile, db: DB, args):
     from jobbot.apply import run_application
+    if _is_example(profile):
+        print(EXAMPLE_PROFILE_MSG)
+        return
     acfg = cfg["apply"]
     mode = args.mode or acfg["mode"]
     rows = [r for r in db.by_status("ready") if db.job(r).can_auto_apply]

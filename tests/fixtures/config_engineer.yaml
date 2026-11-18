@@ -1,0 +1,55 @@
+# Copy to config.yaml and edit.
+
+profile: profile.yaml        # your master profile (see profile.example.yaml)
+database: jobbot.db          # tracks every job seen and what happened to it
+output_dir: output           # tailored resumes / cover letters / screenshots go here
+
+# Which AI writes the scores, resumes and form answers:
+#   claude = Claude via the Anthropic API (best results; needs ANTHROPIC_API_KEY, small cost)
+#   ollama = a free model running on your own computer (install https://ollama.com)
+#   auto   = claude if ANTHROPIC_API_KEY is set, otherwise ollama
+provider: auto
+model: claude-opus-5-5       # used when provider is claude
+ollama:
+  model: qwen2.5:7b          # run `ollama pull qwen2.5:7b` once first
+  host: http://localhost:11434
+  num_ctx: 16384             # context window; lower to 8192 if your PC runs out of memory
+  timeout_seconds: 900       # local models can be slow, especially without a GPU
+
+search:
+  # jobs        = regular roles (titles with "intern" etc. are excluded below)
+  # internships = only internships, co-ops and student positions
+  # both        = everything; internship titles are never excluded
+  focus: jobs
+  # A job passes if any keyword is in the title (or 2+ appear in the description).
+  keywords: ["software engineer", "backend", "python", "platform engineer"]
+  exclude_keywords: ["staff", "principal", "director", "intern", "manager"]
+  locations: ["New York", "NYC", "Remote - US", "United States"]
+  remote_ok: true            # remote jobs pass even if location doesn't match
+  max_age_days: 30
+
+# Company "slugs" = the part of their careers URL:
+#   job-boards.greenhouse.io/<slug>    jobs.lever.co/<slug>    jobs.ashbyhq.com/<slug>
+# Add the companies you want to work for. Unknown slugs are reported and skipped.
+sources:
+  greenhouse: [stripe, airbnb, datadog, figma, discord]
+  lever: [plaid, palantir]
+  ashby: [ramp, notion, linear]
+  remotive:                  # remote-job aggregator: discovery + documents only, you apply manually
+    enabled: false
+    searches: ["python developer"]
+
+matching:
+  min_score: 70              # Claude's 0-100 fit score needed to prepare an application
+  max_jobs_to_score: 50      # cost cap per `find` run
+
+documents:
+  cover_letter: when_accepted   # when_accepted | always | never
+  formats: [pdf, docx]          # PDF is always made (it's what gets uploaded)
+
+apply:
+  mode: review               # review = you click Submit; auto = submits when confident
+  max_per_run: 10
+  max_per_day: 25
+  delay_seconds: 20          # pause between auto submissions
+  headless: false            # only used in auto mode

@@ -1,87 +1,103 @@
-# Your MASTER profile. Put everything true about you here: every role, every
-# good bullet, every skill. jobbot picks and rephrases from this for each job,
-# and is instructed never to add anything that isn't here. More detail = better resumes.
+# EXAMPLE PROFILE for a Kinesiology + French student. Replace EVERYTHING with your real details.
+# jobbot picks and rephrases from this file for each job and never adds anything that isn't here,
+# so more true detail = better resumes. Volunteer work, labs, coaching and tutoring all count.
+#
+# Safety lock: jobbot won't write resumes or fill applications while the next line is here.
+# Delete it once this file describes you.
+example_profile: true
 
-name: Alex Rivera
-first_name: Alex
-last_name: Rivera
-email: alex.rivera@example.com
-phone: "+1 555 010 2030"
-location: Brooklyn, NY
+name: Your Name
+first_name: Your
+last_name: Name
+email: your.email@example.com
+phone: "+1 555 555 0100"
+location: Ottawa, ON
 links:
-  linkedin: https://linkedin.com/in/alexrivera-example
-  github: https://github.com/alexrivera-example
+  linkedin: ""
   website: ""
 
 summary: >
-  Backend engineer with 6 years building data-heavy Python services and APIs.
+  Kinesiology and French student with hands-on experience in rehabilitation, exercise testing
+  and French tutoring.
+
+# Shown on every resume. Say how well you speak, read and write each one.
+languages:
+  - English (native)
+  - French (fluent, spoken and written)
 
 experience:
-  - id: acme
-    company: Acme Logistics
-    title: Senior Software Engineer
-    location: New York, NY
-    start: Mar 2022
+  - id: clinic
+    company: Example Physiotherapy Clinic
+    title: Rehabilitation Assistant (part-time)
+    location: Ottawa, ON
+    start: Sep 2025
     end: Present
     bullets:
-      - Led migration of order-routing service from a Django monolith to 6 FastAPI services, cutting p95 latency from 900ms to 180ms
-      - Designed Kafka-based event pipeline processing 40M events/day
-      - Mentored 4 junior engineers; ran the team's on-call rotation and incident reviews
-      - Introduced contract testing, reducing integration-related production incidents by ~60%
-  - id: brightdata
-    company: Bright Data Co
-    title: Software Engineer
-    location: Remote
-    start: Jun 2019
-    end: Feb 2022
+      - Set up exercise equipment and guided patients through home-exercise programs under physiotherapist supervision
+      - Cleaned and prepared treatment areas, and kept patient appointment records up to date
+  - id: tutor
+    company: Self-employed
+    title: French Tutor
+    location: Ottawa, ON
+    start: Jan 2024
+    end: Present
     bullets:
-      - Built internal billing API in Python/PostgreSQL serving 300 enterprise customers
-      - Wrote Terraform modules used by 12 teams to provision AWS infrastructure
-      - Cut monthly AWS spend by $18k by rightsizing RDS and moving batch jobs to spot instances
+      - Tutor 5 high-school students weekly in French grammar, writing and oral expression
+  - id: camp
+    company: City of Ottawa
+    title: Bilingual Day Camp Counsellor (summer)
+    location: Ottawa, ON
+    start: Jun 2024
+    end: Aug 2024
+    bullets:
+      - Led daily activities for groups of 12 children in English and French
 
 projects:
-  - id: tinyq
-    name: tinyq
-    url: https://github.com/alexrivera-example/tinyq
-    description: Open-source Redis-backed task queue for Python, ~1.2k GitHub stars
+  - id: labproject
+    name: Exercise physiology lab project
+    url: ""
+    description: Measured heart-rate recovery in 20 participants and presented the results to the class
 
 skills:
-  languages: [Python, Go, SQL, TypeScript]
-  backend: [FastAPI, Django, PostgreSQL, Redis, Kafka, gRPC]
-  infra: [AWS, Terraform, Docker, Kubernetes, GitHub Actions]
+  health: [exercise prescription basics, anthropometric measurements, blood pressure measurement]
+  research: [data entry, Excel, participant scheduling]
+  teaching: [lesson planning, French grammar instruction]
 
-# Students: add `details` (e.g. "Expected graduation May 2028 · GPA 3.7 · Coursework: ...").
-# For internship postings the resume puts Education first.
+# Students: put your program, year and expected graduation in `details`.
+# For student jobs and internship postings the resume lists Education first.
 education:
-  - degree: B.S. Computer Science
-    school: Rutgers University
-    year: 2019
+  - degree: B.Sc. Kinesiology and B.A. French (double major)
+    school: Your University
+    year: Expected 2028
+    details: "Year 2 · Coursework: Exercise Physiology, Human Anatomy, Biomechanics, French Linguistics"
 
-certifications: [AWS Certified Solutions Architect – Associate]
+certifications: [Standard First Aid & CPR-C]
 
-# What you want - used when scoring jobs.
+# What you want - used when scoring jobs. Also editable on the Preferences tab.
 preferences:
-  seniority: mid to senior IC
-  min_salary_usd: 150000
-  work_mode: remote or hybrid in NYC
-  avoid: [defense, gambling]
-  # For internships / co-ops, say when and how long, e.g. "Summer 2027, 4-month co-op".
-  internship_term: ""
+  seniority: student (summer, part-time, co-op)
+  schedule: [summer, part-time, co-op]
+  targets:
+    - research assistant roles in kinesiology or health research
+    - clinical, hospital or rehabilitation settings
+    - teaching or tutoring French
+    - government jobs that require French or bilingualism
+  work_mode: in person or hybrid
+  avoid: []
+  internship_term: "Summer 2027"
 
-# Answers to questions that show up on most applications. Add your own.
-# Anything not covered here that Claude can't answer from the profile is left for you.
+# Answers to questions that show up on most applications. Fill in your own.
+# Anything not covered here that the AI can't answer from the profile is left for you.
 application_answers:
-  work_authorization: Authorized to work in the US for any employer (US citizen)
-  requires_sponsorship: "No"
-  willing_to_relocate: Only to New York City
-  earliest_start_date: 2 weeks after offer
-  desired_salary: "$160,000 - $185,000 base"
-  how_did_you_hear: Company careers page
-  years_of_experience: "6"
-  previously_worked_here: "No"
-  pronouns: ""            # leave empty to skip
+  work_authorization: ""        # e.g. "Canadian citizen"
+  requires_sponsorship: ""      # e.g. "No"
+  willing_to_relocate: ""
+  earliest_start_date: ""       # e.g. "May 2027"
+  enrolled_full_time: ""        # e.g. "Yes, returning to full-time studies in September 2027"
+  how_did_you_hear: Job board
+  pronouns: ""
 
-# Voluntary EEO self-identification. Leave a key out (or empty) and jobbot will
+# Voluntary self-identification. Leave a key out (or empty) and jobbot will
 # choose "decline to self-identify". Never sent anywhere except these forms.
 eeo:
   gender: ""
