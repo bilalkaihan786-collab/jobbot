@@ -322,7 +322,9 @@ const post = (url, body) => fetch(url, {method: "POST", headers: {"Content-Type"
                                         body: JSON.stringify(body || {})})
   .then(async r => {
     const data = await r.json().catch(() => ({}));
-    if (!r.ok && !data.error) data.error = `Error ${r.status} from jobbot. Check the PowerShell window running jobbot for details.`;
+    if (!r.ok && !data.error) data.error = r.status === 404
+      ? "The jobbot running in PowerShell is an older version than this page. Close every PowerShell window running jobbot, then start it again with: python -m jobbot web"
+      : `Error ${r.status} from jobbot. Check the PowerShell window running jobbot for details.`;
     return {ok: r.ok, data};
   })
   .catch(() => ({ok: false, data: {error: "Can't reach jobbot. Is the PowerShell window running `python -m jobbot web` still open?"}}));
@@ -345,10 +347,12 @@ async function refresh() {
   b.innerHTML = `<span class="dot"></span>AI: ${esc(ai.provider)}${ai.model ? " · " + esc(ai.model) : ""}${ai.ready ? "" : " · not ready"}`;
   b.title = ai.message;
   const msgs = [];
+  // Older servers don't send restart_needed at all.
+  if (!("restart_needed" in summary) || summary.restart_needed) msgs.push(`jobbot was updated, but the version running in PowerShell is older, so some buttons won't work. Close every PowerShell window running jobbot (or press Ctrl+C in it), then run <code>python -m jobbot web</code> again.`);
   if (summary.missing_packages && summary.missing_packages.length) msgs.push(`Some packages jobbot needs are missing (${esc(summary.missing_packages.join(", "))}), so saving Preferences and other features won't work. In the PowerShell window, press Ctrl+C, run <code>${esc(summary.fix_packages)}</code>, then start jobbot again.`);
   if (summary.profile_error) msgs.push(`Your profile has a problem: ${esc(summary.profile_error)} Fix it on the Settings tab.`);
   if (summary.example_profile) msgs.push(`Your profile is still the example. Open <b>Settings → Your profile</b>, replace the example details with yours, and delete the line <code>example_profile: true</code>. Until then jobbot can find jobs but won't score them or write resumes.`);
-  if (summary.adzuna.enabled && !summary.adzuna.has_keys) msgs.push(`Adzuna needs your free app ID and key. Get them at <a href="https://developer.adzuna.com" target="_blank" rel="noopener">developer.adzuna.com</a>, then add them on the <a href="#" onclick="show('prefs');return false">Preferences</a> tab.`);
+  if (summary.adzuna && summary.adzuna.enabled && !summary.adzuna.has_keys) msgs.push(`Adzuna needs your free app ID and key. Get them at <a href="https://developer.adzuna.com" target="_blank" rel="noopener">developer.adzuna.com</a>, then add them on the <a href="#" onclick="show('prefs');return false">Preferences</a> tab.`);
   if (!ai.ready) msgs.push(`The AI isn't ready: ${esc(ai.message)}`);
   setup.innerHTML = msgs.map(m => `<div class="notice warn" style="margin:0 0 14px">${m}</div>`).join("");
   if (!$("#mode").dataset.touched) $("#mode").value = summary.apply_mode;
@@ -401,7 +405,7 @@ function jobCard(j) {
   if (j.resume) links.push(`<a href="/files/${encodeURI(j.resume)}" target="_blank">Resume (PDF)</a>`);
   if (j.cover_letter) links.push(`<a href="/files/${encodeURI(j.cover_letter)}" target="_blank">Cover letter</a>`);
   if ((j.status === "needs_manual" || !j.can_auto_apply) && j.apply_url !== j.url) links.push(`<a href="${esc(j.apply_url)}" target="_blank" rel="noopener">Application form ↗</a>`);
-  if (j.source === "adzuna") links.push(`<span class="via">Jobs by <a href="${ADZUNA_SITE[summary.adzuna.country] || "https://www.adzuna.com"}" target="_blank" rel="noopener">Adzuna</a></span>`);
+  if (j.source === "adzuna") links.push(`<span class="via">Jobs by <a href="${ADZUNA_SITE[(summary.adzuna || {}).country] || "https://www.adzuna.com"}" target="_blank" rel="noopener">Adzuna</a></span>`);
   const k = esc(JSON.stringify(j.key));
   const acts = [];
   if (j.status === "ready" && j.can_auto_apply) acts.push(`<button class="primary" onclick='applyOne(${k})'>Apply now</button>`);
@@ -476,7 +480,7 @@ const ADZUNA_SITE = {ca: "https://www.adzuna.ca", us: "https://www.adzuna.com", 
                      fr: "https://www.adzuna.fr", au: "https://www.adzuna.com.au", de: "https://www.adzuna.de"};
 function renderElsewhere() {
   const a = summary.adzuna;
-  if (a.country !== "ca") { $("#elsewhere").innerHTML = ""; return; }
+  if (!a || a.country !== "ca") { $("#elsewhere").innerHTML = ""; return; }
   const qs = (a.searches.length ? a.searches : ["bilingual student"]).slice(0, 8);
   const link = q => `<a href="https://www.jobbank.gc.ca/jobsearch/jobsearch?searchstring=${encodeURIComponent(q)}&locationstring=${encodeURIComponent(a.where)}" target="_blank" rel="noopener">${esc(q)} ↗</a>`;
   $("#elsewhere").innerHTML = `<details class="panel elsewhere"><summary><b>Other places to look</b> <span class="via">· government and student job boards jobbot can't search for you</span></summary>
@@ -505,8 +509,13 @@ for (const sel of Object.values(FILTER_IDS)) $(sel).addEventListener(sel === "#q
 const csv = a => (a || []).join(", ");
 async function loadPrefs() {
   $("#prefs-msg").innerHTML = "";
-  const r = await fetch("/api/preferences"), p = await r.json();
-  if (!r.ok) { $("#prefs-msg").innerHTML = `<span class="err">${esc(p.error)}</span>`; return; }
+  const r = await fetch("/api/preferences"), p = await r.json().catch(() => ({}));
+  if (!r.ok) {
+    const msg = r.status === 404
+      ? "The jobbot running in PowerShell is an older version than this page. Close every PowerShell window running jobbot, then start it again with: python -m jobbot web"
+      : p.error || `Error ${r.status} from jobbot.`;
+    $("#prefs-msg").innerHTML = `<span class="err">${esc(msg)}</span>`; return;
+  }
   document.querySelectorAll("input[name=focus]").forEach(x => x.checked = x.value === p.focus);
   $("#p-term").value = p.internship_term; $("#p-keywords").value = csv(p.keywords); $("#p-exclude").value = csv(p.exclude_keywords);
   $("#p-locations").value = csv(p.locations); $("#p-remote").checked = p.remote_ok; $("#p-age").value = p.max_age_days;

@@ -149,6 +149,21 @@ class _Stream(io.TextIOBase):
 # ------------------------------------------------------------------ helpers
 
 FIX_PACKAGES = "python -m pip install -r requirements.txt"
+RESTART = "In the PowerShell window running jobbot press Ctrl+C, then run: python -m jobbot web"
+
+
+def code_fingerprint() -> tuple:
+    """Sizes and times of jobbot's own files. If they change while the server runs (a `git pull`),
+    the running server is out of date and needs a restart."""
+    pkg = Path(__file__).parent
+    files = sorted(list(pkg.glob("*.py")) + list((pkg / "static").glob("*")))
+    return tuple((f.name, f.stat().st_size, int(f.stat().st_mtime)) for f in files if f.is_file())
+
+
+def port_in_use(port: int) -> bool:
+    import socket
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        return s.connect_ex(("127.0.0.1", port)) == 0
 
 
 def missing_packages() -> list[str]:
@@ -419,6 +434,7 @@ def create_app(config_path: str | Path) -> Flask:
     config_path = Path(config_path).resolve()
     app = Flask(__name__, static_folder=None)
     runner = TaskRunner()
+    started_code = code_fingerprint()
     app.config["runner"] = runner
 
     def cfg_profile():
@@ -470,6 +486,7 @@ def create_app(config_path: str | Path) -> Flask:
             focus=normalize_focus(cfg["search"].get("focus")),
             example_profile=example,
             missing_packages=missing_packages(), fix_packages=FIX_PACKAGES,
+            restart_needed=code_fingerprint() != started_code, restart_how=RESTART,
             adzuna={"enabled": bool(ad.get("enabled")), "has_keys": all(adzuna_keys(ad)),
                     "country": (ad.get("country") or "ca").lower(), "where": ad.get("where") or "",
                     "searches": _str_list(ad.get("searches"))},
@@ -606,8 +623,13 @@ def serve(config_path: str = "config.yaml", port: int = 8000, open_browser: bool
               f"  Some features won't work. Stop with Ctrl+C and run:\n    {FIX_PACKAGES}\n")
     config_path = Path(config_path).resolve()
     _ensure_files(config_path)
-    app = create_app(config_path)
     url = f"http://localhost:{port}"
+    if port_in_use(port):
+        print(f"\n  Something is already running at {url} - probably jobbot in another window,\n"
+              f"  maybe an older version. Close that PowerShell window (or press Ctrl+C in it),\n"
+              f"  then run this again. Or use another port:  python -m jobbot web --port {port + 1}\n")
+        raise SystemExit(1)
+    app = create_app(config_path)
     print(f"\n  jobbot is running at {url}\n  Keep this window open. Press Ctrl+C to stop.\n")
     if open_browser:
         threading.Timer(1.0, lambda: webbrowser.open(url)).start()

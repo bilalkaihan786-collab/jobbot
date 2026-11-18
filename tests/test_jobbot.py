@@ -630,3 +630,20 @@ def test_old_large_ollama_context_is_reduced(profile, monkeypatch):
     assert make_llm(cfg, profile).num_ctx == 8192
     cfg["ollama"]["num_ctx"] = 4096
     assert make_llm(cfg, profile).num_ctx == 4096
+
+
+def test_restart_needed_after_code_changes(web, monkeypatch):
+    import jobbot.web as webmod
+    app, c, tmp = web
+    assert c.get("/api/summary").get_json()["restart_needed"] is False
+    monkeypatch.setattr(webmod, "code_fingerprint", lambda: ("changed",))
+    s = c.get("/api/summary").get_json()
+    assert s["restart_needed"] is True and "Ctrl+C" in s["restart_how"]
+
+
+def test_serve_refuses_busy_port(monkeypatch, tmp_path, capsys):
+    import jobbot.web as webmod
+    monkeypatch.setattr(webmod, "port_in_use", lambda port: True)
+    with pytest.raises(SystemExit):
+        webmod.serve(str(tmp_path / "config.yaml"), port=8000, open_browser=False)
+    assert "already running at http://localhost:8000" in capsys.readouterr().out
