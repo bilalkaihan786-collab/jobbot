@@ -37,7 +37,24 @@ Then edit both files:
   is the slug from its careers URL (`job-boards.greenhouse.io/<slug>`, `jobs.lever.co/<slug>`,
   `jobs.ashbyhq.com/<slug>`).
 
-## Use
+## Web page (easiest)
+
+```bash
+python -m jobbot web
+```
+
+This opens jobbot in your browser at http://localhost:8000. It only runs on your own computer.
+On first run it creates `config.yaml` and `profile.yaml` from the examples, and you can edit both
+on the **Settings** tab. The **Jobs** tab has buttons for each step (Find jobs, Prepare resumes,
+Apply), a live activity log, your matches with the reasons for each score, and links to the
+generated resumes. In review mode, when a form is filled in, the page asks you to check it in the
+browser window and click Submit there, then tell jobbot what happened. Keep the terminal window
+open while you use it; press Ctrl+C there to stop.
+
+Use `--port 8080` to pick another port, or `--no-browser` to skip opening a tab.
+
+## Command line
+
 
 ```bash
 python -m jobbot find        # fetch + filter + score; prints ✓ for good matches

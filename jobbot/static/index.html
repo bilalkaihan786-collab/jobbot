@@ -1,0 +1,277 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>jobbot</title>
+<style>
+:root {
+  --bg: #f6f7f9; --panel: #ffffff; --text: #1d2330; --muted: #667085; --line: #e3e6ec;
+  --accent: #2f5bd3; --accent-ink: #ffffff; --good: #18794e; --good-bg: #e6f4ec;
+  --warn: #9a5b00; --warn-bg: #fff4e0; --bad: #b42318; --bad-bg: #fdecea; --chip: #eef1f6;
+  --log-bg: #0f1420; --log-ink: #d7deea;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #11141b; --panel: #191d26; --text: #e6e9ef; --muted: #98a2b3; --line: #2a303c;
+    --accent: #6b8cff; --accent-ink: #0b1020; --good: #4cc38a; --good-bg: #13291f;
+    --warn: #f0b155; --warn-bg: #2d2412; --bad: #ff8a80; --bad-bg: #331a1a; --chip: #232936;
+    --log-bg: #0a0d14; --log-ink: #c9d2e3;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text);
+       font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+header { background: var(--panel); border-bottom: 1px solid var(--line); }
+.wrap { max-width: 1040px; margin: 0 auto; padding: 0 16px; }
+.top { display: flex; align-items: center; gap: 16px; padding: 14px 0; flex-wrap: wrap; }
+.brand { font-weight: 700; font-size: 20px; letter-spacing: .2px; }
+.brand span { color: var(--accent); }
+nav { display: flex; gap: 4px; margin-left: auto; }
+nav button { background: none; border: 0; color: var(--muted); font: inherit; padding: 6px 12px;
+             border-radius: 8px; cursor: pointer; }
+nav button.on { background: var(--chip); color: var(--text); font-weight: 600; }
+.badge { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; padding: 4px 10px;
+         border-radius: 999px; background: var(--chip); color: var(--muted); }
+.badge.ok { background: var(--good-bg); color: var(--good); }
+.badge.no { background: var(--warn-bg); color: var(--warn); }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+main.wrap { padding: 20px 16px 60px; }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px; }
+.steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.step h3 { margin: 0 0 4px; font-size: 15px; }
+.step p { margin: 0 0 12px; color: var(--muted); font-size: 13.5px; }
+.n { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%;
+     background: var(--chip); font-size: 12px; font-weight: 700; margin-right: 6px; }
+button.primary, button.ghost, select { font: inherit; border-radius: 8px; padding: 8px 14px; cursor: pointer; }
+button.primary { background: var(--accent); color: var(--accent-ink); border: 0; font-weight: 600; }
+button.ghost { background: transparent; color: var(--text); border: 1px solid var(--line); }
+button:disabled { opacity: .5; cursor: not-allowed; }
+select { background: var(--panel); color: var(--text); border: 1px solid var(--line); padding: 7px 8px; }
+.row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.notice { margin-top: 14px; padding: 12px 14px; border-radius: 10px; font-size: 14px; }
+.notice.warn { background: var(--warn-bg); color: var(--warn); }
+.notice.bad { background: var(--bad-bg); color: var(--bad); }
+.review { margin-top: 14px; border: 2px solid var(--accent); }
+.review h3 { margin: 0 0 6px; }
+.logbox { margin-top: 14px; }
+.logbox summary { cursor: pointer; color: var(--muted); font-size: 14px; }
+pre.log { background: var(--log-bg); color: var(--log-ink); border-radius: 10px; padding: 12px;
+          margin: 8px 0 0; max-height: 300px; overflow: auto; font-size: 12.5px; white-space: pre-wrap;
+          word-break: break-word; }
+.chips { display: flex; gap: 6px; flex-wrap: wrap; margin: 22px 0 12px; }
+.chip { border: 1px solid var(--line); background: var(--panel); color: var(--text); border-radius: 999px;
+        padding: 5px 12px; font: inherit; font-size: 13.5px; cursor: pointer; }
+.chip.on { background: var(--text); color: var(--bg); border-color: var(--text); }
+.chip b { font-weight: 600; margin-left: 4px; opacity: .7; }
+.job { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px;
+       margin-bottom: 10px; display: grid; grid-template-columns: 52px 1fr auto; gap: 14px; align-items: start; }
+.score { width: 52px; height: 52px; border-radius: 12px; display: grid; place-items: center;
+         font-weight: 700; font-size: 18px; background: var(--chip); color: var(--muted); }
+.score.hi { background: var(--good-bg); color: var(--good); }
+.score.mid { background: var(--warn-bg); color: var(--warn); }
+.job h4 { margin: 0; font-size: 15.5px; }
+.meta { color: var(--muted); font-size: 13.5px; margin-top: 2px; }
+.status { display: inline-block; font-size: 12px; padding: 2px 8px; border-radius: 6px; background: var(--chip);
+          margin-left: 6px; vertical-align: 2px; color: var(--muted); font-weight: 600; }
+.status.applied { background: var(--good-bg); color: var(--good); }
+.status.ready, .status.scored { background: #e8eefc; color: var(--accent); }
+@media (prefers-color-scheme: dark) { .status.ready, .status.scored { background: #1c2540; } }
+.status.failed, .status.needs_manual { background: var(--warn-bg); color: var(--warn); }
+.why { margin: 8px 0 0; padding-left: 18px; font-size: 13.5px; }
+.why li.minus { color: var(--muted); }
+.note { font-size: 13px; color: var(--muted); margin-top: 6px; }
+.links { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 8px; font-size: 13.5px; }
+a { color: var(--accent); text-decoration: none; } a:hover { text-decoration: underline; }
+.acts { display: flex; flex-direction: column; gap: 6px; align-items: stretch; }
+.acts button { font-size: 13px; padding: 6px 10px; }
+.empty { text-align: center; color: var(--muted); padding: 40px 16px; }
+textarea { width: 100%; min-height: 460px; font: 13px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace;
+           background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 10px;
+           padding: 12px; resize: vertical; }
+.help { color: var(--muted); font-size: 13.5px; margin: 0 0 10px; }
+.saved { color: var(--good); font-size: 14px; }
+.err { color: var(--bad); font-size: 14px; }
+@media (max-width: 720px) {
+  .steps { grid-template-columns: 1fr; }
+  .job { grid-template-columns: 44px 1fr; }
+  .score { width: 44px; height: 44px; font-size: 16px; }
+  .acts { grid-column: 1 / -1; flex-direction: row; flex-wrap: wrap; }
+  nav { margin-left: 0; }
+}
+</style>
+</head>
+<body>
+<header><div class="wrap top">
+  <div class="brand">job<span>bot</span></div>
+  <span id="ai" class="badge">Checking AI…</span>
+  <nav><button id="tab-jobs" class="on" onclick="show('jobs')">Jobs</button>
+       <button id="tab-settings" onclick="show('settings')">Settings</button></nav>
+</div></header>
+
+<main class="wrap">
+<section id="view-jobs">
+  <div id="setup"></div>
+  <div class="steps">
+    <div class="panel step"><h3><span class="n">1</span>Find jobs</h3>
+      <p>Fetch new openings from your companies, filter them, and score how well you fit.</p>
+      <button class="primary" data-run="find">Find jobs</button></div>
+    <div class="panel step"><h3><span class="n">2</span>Prepare resumes</h3>
+      <p>Write a tailored resume (and cover letter where needed) for each good match.</p>
+      <button class="primary" data-run="prepare">Prepare resumes</button></div>
+    <div class="panel step"><h3><span class="n">3</span>Apply</h3>
+      <p>Open each application in a browser window and fill it in for you to check.</p>
+      <div class="row"><button class="primary" data-run="apply">Apply</button>
+        <select id="mode" title="Apply mode">
+          <option value="review">Review: I click Submit</option>
+          <option value="auto">Auto: submit when confident</option>
+        </select></div></div>
+  </div>
+
+  <div id="review"></div>
+  <details class="logbox" id="logbox"><summary id="logsum">Activity log</summary><pre class="log" id="log">Nothing has run yet.</pre></details>
+
+  <div class="chips" id="chips"></div>
+  <div id="jobs"></div>
+</section>
+
+<section id="view-settings" hidden>
+  <div class="chips" style="margin-top:0">
+    <button class="chip on" id="set-profile" onclick="loadSettings('profile')">Your profile</button>
+    <button class="chip" id="set-config" onclick="loadSettings('config')">Search settings</button>
+  </div>
+  <div class="panel">
+    <p class="help" id="set-help"></p>
+    <textarea id="editor" spellcheck="false"></textarea>
+    <div class="row" style="margin-top:10px">
+      <button class="primary" onclick="saveSettings()">Save</button>
+      <span id="set-msg"></span>
+    </div>
+  </div>
+</section>
+</main>
+
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const post = (url, body) => fetch(url, {method: "POST", headers: {"Content-Type": "application/json", "X-Jobbot": "1"},
+                                        body: JSON.stringify(body || {})}).then(async r => ({ok: r.ok, data: await r.json().catch(() => ({}))}));
+const LABELS = {scored: "Good matches", ready: "Ready to apply", needs_manual: "Apply yourself", applied: "Applied",
+                rejected: "Not a fit", failed: "Problems", skipped: "Skipped", new: "Not scored yet", all: "All"};
+let filter = "scored", summary = null, logSince = 0, running = false, settingsWhich = "profile", ticks = 0, firstLoad = true;
+
+function show(v) {
+  for (const x of ["jobs", "settings"]) { $("#view-" + x).hidden = x !== v; $("#tab-" + x).classList.toggle("on", x === v); }
+  if (v === "settings") loadSettings(settingsWhich);
+}
+
+async function refresh() {
+  summary = await fetch("/api/summary").then(r => r.json());
+  const setup = $("#setup");
+  if (!summary.config_ok) { setup.innerHTML = `<div class="notice bad" style="margin-bottom:14px">${esc(summary.error)}</div>`; return; }
+  const ai = summary.ai, b = $("#ai");
+  b.className = "badge " + (ai.ready ? "ok" : "no");
+  b.innerHTML = `<span class="dot"></span>AI: ${esc(ai.provider)}${ai.model ? " · " + esc(ai.model) : ""}${ai.ready ? "" : " · " + esc(ai.message)}`;
+  const msgs = [];
+  if (summary.profile_error) msgs.push(`Your profile has a problem: ${esc(summary.profile_error)} Fix it on the Settings tab.`);
+  if (!ai.ready) msgs.push(`The AI isn't ready: ${esc(ai.message)}`);
+  setup.innerHTML = msgs.map(m => `<div class="notice warn" style="margin:0 0 14px">${m}</div>`).join("");
+  if (!$("#mode").dataset.touched) $("#mode").value = summary.apply_mode;
+  if (firstLoad) {  // open on the first list that has something in it
+    firstLoad = false;
+    const c = summary.counts || {};
+    if (!c[filter]) filter = ["ready", "needs_manual", "applied"].find(s => c[s]) || (summary.jobs.length ? "all" : filter);
+  }
+  renderJobs();
+}
+
+function renderJobs() {
+  const counts = summary.counts || {};
+  const order = ["scored", "ready", "needs_manual", "applied", "failed", "rejected", "skipped", "new"];
+  const total = summary.jobs.length;
+  $("#chips").innerHTML = order.filter(s => counts[s] || s === filter || s === "scored")
+    .map(s => `<button class="chip ${s === filter ? "on" : ""}" onclick="setFilter('${s}')">${LABELS[s]}<b>${counts[s] || 0}</b></button>`).join("")
+    + `<button class="chip ${filter === "all" ? "on" : ""}" onclick="setFilter('all')">${LABELS.all}<b>${total}</b></button>`;
+  const jobs = summary.jobs.filter(j => filter === "all" || j.status === filter);
+  if (!jobs.length) {
+    const hint = total ? "Nothing in this list." : "No jobs yet. Click <b>Find jobs</b> to start.";
+    $("#jobs").innerHTML = `<div class="panel empty">${hint}</div>`; return;
+  }
+  $("#jobs").innerHTML = jobs.map(jobCard).join("");
+}
+
+function jobCard(j) {
+  const sc = j.score == null ? "–" : j.score, cls = j.score >= 70 ? "hi" : j.score >= 50 ? "mid" : "";
+  const why = j.reasons.map(r => `<li>${esc(r)}</li>`).join("") + j.concerns.map(r => `<li class="minus">− ${esc(r)}</li>`).join("");
+  const links = [`<a href="${esc(j.url)}" target="_blank" rel="noopener">Job posting ↗</a>`];
+  if (j.resume) links.push(`<a href="/files/${encodeURI(j.resume)}" target="_blank">Resume (PDF)</a>`);
+  if (j.cover_letter) links.push(`<a href="/files/${encodeURI(j.cover_letter)}" target="_blank">Cover letter</a>`);
+  if (j.status === "needs_manual" || !j.can_auto_apply) links.push(`<a href="${esc(j.apply_url)}" target="_blank" rel="noopener">Application form ↗</a>`);
+  const k = esc(JSON.stringify(j.key));
+  const acts = [];
+  if (j.status === "ready" && j.can_auto_apply) acts.push(`<button class="primary" onclick='applyOne(${k})'>Apply now</button>`);
+  if (j.status !== "applied") acts.push(`<button class="ghost" onclick='mark(${k}, "applied")'>Mark applied</button>`);
+  if (!["skipped", "applied"].includes(j.status)) acts.push(`<button class="ghost" onclick='mark(${k}, "skipped")'>Skip</button>`);
+  return `<div class="job"><div class="score ${cls}">${sc}</div><div>
+    <h4>${esc(j.title)}<span class="status ${esc(j.status)}">${esc(LABELS[j.status] || j.status)}</span></h4>
+    <div class="meta">${esc(j.company)} · ${esc(j.location || "Location not listed")}${j.remote ? " · Remote" : ""}</div>
+    ${why ? `<ul class="why">${why}</ul>` : ""}
+    ${j.note ? `<div class="note">${esc(j.note)}</div>` : ""}
+    <div class="links">${links.join("")}</div></div>
+    <div class="acts">${acts.join("")}</div></div>`;
+}
+
+function setFilter(s) { filter = s; renderJobs(); }
+
+async function start(action, body) {
+  const r = await post("/api/run/" + action, body);
+  if (!r.ok) { alert(r.data.error || "Couldn't start."); return; }
+  logSince = 0; $("#log").textContent = ""; $("#logbox").open = true; poll();
+}
+document.querySelectorAll("[data-run]").forEach(b => b.onclick = () => start(b.dataset.run, b.dataset.run === "apply" ? {mode: $("#mode").value} : {}));
+$("#mode").onchange = e => { e.target.dataset.touched = 1;
+  if (e.target.value === "auto" && !confirm("Auto mode submits applications without showing them to you first, whenever every required field was answered confidently. Use it only after you've checked a few in Review mode. Continue?")) e.target.value = "review"; };
+function applyOne(key) { start("apply", {key, mode: $("#mode").value}); }
+async function mark(key, status) { await post("/api/mark", {key, status}); refresh(); }
+
+async function poll() {
+  const s = await fetch("/api/task?since=" + logSince).then(r => r.json());
+  if (s.lines.length) {
+    const log = $("#log"), atBottom = log.scrollTop + log.clientHeight >= log.scrollHeight - 20;
+    log.textContent += s.lines.join("\n") + "\n"; logSince = s.total;
+    if (atBottom) log.scrollTop = log.scrollHeight;
+  }
+  const was = running; running = s.running;
+  document.querySelectorAll("[data-run], .acts .primary").forEach(b => b.disabled = running);
+  $("#logsum").textContent = running ? `Running: ${s.name}…` : s.name ? `Activity log (last run: ${s.name}${s.error ? ", failed" : ""})` : "Activity log";
+  $("#review").innerHTML = s.review ? `<div class="panel review"><h3>Your turn: ${esc(s.review.title)} @ ${esc(s.review.company)}</h3>
+      <p class="help">A browser window has the filled-in application. Check every answer, fix anything wrong, and click Submit in that window. Then tell jobbot what happened:</p>
+      <div class="row"><button class="primary" onclick="answer('applied')">I submitted it</button>
+      <button class="ghost" onclick="answer('later')">Do it later</button>
+      <button class="ghost" onclick="answer('skipped')">Skip this job</button></div></div>` : "";
+  if (running) { setTimeout(poll, 1000); if (++ticks % 5 === 0) refresh(); }
+  else if (was) refresh();
+}
+async function answer(a) { await post("/api/review", {answer: a}); poll(); }
+
+const HELP = {
+  profile: "Your master resume. Put in every role, strong bullet point and skill. jobbot picks from and rephrases this for each job and never adds anything that isn't here. Keep the same layout: “key: value”, and lines starting with “- ” for lists.",
+  config: "What to search for: keywords, locations, the companies to watch (the name from their careers page address), which AI to use, and how applying works."
+};
+async function loadSettings(which) {
+  settingsWhich = which;
+  for (const w of ["profile", "config"]) $("#set-" + w).classList.toggle("on", w === which);
+  $("#set-help").textContent = HELP[which]; $("#set-msg").innerHTML = "";
+  const r = await fetch("/api/settings/" + which).then(r => r.json());
+  $("#editor").value = r.text || "";
+}
+async function saveSettings() {
+  const r = await post("/api/settings/" + settingsWhich, {text: $("#editor").value});
+  $("#set-msg").innerHTML = r.ok ? `<span class="saved">Saved.</span>` : `<span class="err">${esc(r.data.error || "Couldn't save.")}</span>`;
+  if (r.ok) refresh();
+}
+
+refresh(); poll();
+</script>
+</body>
+</html>

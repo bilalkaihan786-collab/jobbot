@@ -377,8 +377,12 @@ def submit(page) -> tuple[bool, str]:
 
 
 def run_application(job: Job, profile: dict, llm, resume_pdf: Path,
-                    get_cover_letter, mode: str, headless: bool, out_dir: Path) -> tuple[str, str]:
-    """Returns (status, note). status in applied | needs_manual | failed | skipped."""
+                    get_cover_letter, mode: str, headless: bool, out_dir: Path,
+                    ask_human: Callable[[Job], tuple[str, str]] | None = None) -> tuple[str, str]:
+    """Returns (status, note). status in applied | needs_manual | failed | skipped.
+
+    ask_human asks the user whether they submitted the form; defaults to a terminal
+    prompt (the web UI passes its own)."""
     from playwright.sync_api import sync_playwright
 
     if mode == "review":
@@ -404,7 +408,7 @@ def run_application(job: Job, profile: dict, llm, resume_pdf: Path,
             elif mode == "auto" and headless:
                 return "needs_manual", _issues(report)
 
-            return _ask_human(job)
+            return (ask_human or _ask_human)(job)
         except Exception as e:
             log.exception("Application failed for %s", job.title)
             try:

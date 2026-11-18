@@ -6,6 +6,7 @@
   python -m jobbot run       find + prepare + apply
   python -m jobbot status    summary and list of jobs
   python -m jobbot mark KEY STATUS   manually set a job's status (e.g. after applying by hand)
+  python -m jobbot web       open the local web page (http://localhost:8000)
 """
 from __future__ import annotations
 
@@ -149,7 +150,8 @@ def cmd_apply(cfg, profile, db: DB, args):
 
         status, note = run_application(job, profile, llm, Path(r["resume_path"]),
                                        get_cover if cl_mode != "never" else None,
-                                       mode, acfg["headless"], out_dir)
+                                       mode, acfg["headless"], out_dir,
+                                       ask_human=getattr(args, "ask_human", None))
         db.update(job.key, status=status, note=note)
         print(f"  → {status}: {note}")
         if i < len(rows) - 1 and mode == "auto":
@@ -206,12 +208,20 @@ def main(argv=None):
     p = sub.add_parser("status"); p.add_argument("--status", help="comma-separated filter")
     p = sub.add_parser("mark"); p.add_argument("key"); p.add_argument("status")
     p.add_argument("--note")
+    p = sub.add_parser("web", help="open the local web page")
+    p.add_argument("--port", type=int, default=8000)
+    p.add_argument("--no-browser", action="store_true", help="don't open a browser tab")
     args = ap.parse_args(argv)
 
     logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO,
                         format="%(levelname)s %(message)s")
     for noisy in ("httpx", "anthropic", "urllib3"):
         logging.getLogger(noisy).setLevel(logging.WARNING)
+
+    if args.cmd == "web":
+        from jobbot.web import serve
+        serve(args.config, port=args.port, open_browser=not args.no_browser)
+        return
 
     cfg = load_config(args.config)
     profile = load_profile(cfg["profile"])

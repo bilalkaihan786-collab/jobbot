@@ -273,3 +273,77 @@ def test_make_llm_auto_picks_provider(profile, monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
     assert isinstance(make_llm(DEFAULTS, profile), Claude)
     assert isinstance(make_llm({**DEFAULTS, "provider": "ollama"}, profile), OllamaLLM)
+
+
+# ------------------------------------------------------------ web page
+
+@pytest.fixture
+def web(tmp_path):
+    import shutil, threading
+    from jobbot.web import create_app
+    shutil.copy(ROOT / "config.example.yaml", tmp_path / "config.yaml")
+    shutil.copy(ROOT / "profile.example.yaml", tmp_path / "profile.yaml")
+    app = create_app(tmp_path / "config.yaml")
+    return app, app.test_client(), tmp_path
+
+
+H = {"X-Jobbot": "1"}
+
+
+def test_web_summary_and_mark(web):
+    from jobbot.config import load_config
+    from jobbot.db import DB
+    app, c, tmp = web
+    db = DB(load_config(tmp / "config.yaml")["database"])
+    db.add_new([make_job()])
+    key = make_job().key
+    db.update(key, status="scored", score=80, assessment={"reasons": ["fits"], "missing_requirements": [],
+                                                          "red_flags": ["on-site"]})
+    d = c.get("/api/summary").get_json()
+    assert d["config_ok"] and d["counts"] == {"scored": 1}
+    assert d["jobs"][0]["reasons"] == ["fits"] and d["jobs"][0]["concerns"] == ["on-site"]
+    assert c.post("/api/mark", json={"key": key, "status": "applied"}, headers=H).status_code == 200
+    assert c.get("/api/summary").get_json()["counts"] == {"applied": 1}
+
+
+def test_web_blocks_cross_site_and_bad_paths(web):
+    app, c, tmp = web
+    assert c.post("/api/mark", json={}).status_code == 403                      # no custom header
+    assert c.get("/api/summary", headers={"Host": "evil.example"}).status_code == 403
+    (tmp / "output").mkdir(exist_ok=True)
+    assert c.get("/files/../config.yaml").status_code == 404
+    assert c.post("/api/run/rm", headers=H).status_code == 404
+
+
+def test_web_settings_validate_before_saving(web):
+    app, c, tmp = web
+    before = (tmp / "profile.yaml").read_text()
+    r = c.post("/api/settings/profile", json={"text": "name: [oops"}, headers=H)
+    assert r.status_code == 400 and "YAML" in r.get_json()["error"]
+    r = c.post("/api/settings/profile", json={"text": "name: Sam\nemail: s@example.com\n"}, headers=H)
+    assert r.status_code == 400 and "experience" in r.get_json()["error"]
+    assert (tmp / "profile.yaml").read_text() == before
+    assert c.post("/api/settings/profile", json={"text": before}, headers=H).status_code == 200
+
+
+def test_web_review_question_answered_from_page(web):
+    import threading, time
+    app, c, tmp = web
+    runner = app.config["runner"]
+    result = {}
+
+    def task():
+        result["v"] = runner.ask_human(make_job())
+    assert runner.start("apply", task)
+    for _ in range(100):
+        if c.get("/api/task").get_json()["review"]:
+            break
+        time.sleep(0.02)
+    assert c.get("/api/task").get_json()["review"]["title"] == "Senior Backend Engineer"
+    assert c.post("/api/review", json={"answer": "applied"}, headers=H).status_code == 200
+    for _ in range(100):
+        if not c.get("/api/task").get_json()["running"]:
+            break
+        time.sleep(0.02)
+    assert result["v"][0] == "applied"
+    assert any("Waiting for you" in line for line in c.get("/api/task").get_json()["lines"])
