@@ -51,6 +51,7 @@ class TaskRunner:
         self.started = self.finished = None
         self._partial = ""
         self.review: dict | None = None   # set while waiting for the user to submit a form
+        self.stop_requested = False
 
     # -- log capture
     def write(self, s: str):
@@ -70,6 +71,7 @@ class TaskRunner:
             if self.running:
                 return False
             self.name, self.running, self.error = name, True, None
+            self.stop_requested = False
             self.lines, self._partial = [], ""
             self.started, self.finished = time.time(), None
         threading.Thread(target=self._run, args=(fn,), daemon=True).start()
@@ -104,6 +106,8 @@ class TaskRunner:
             rv = self.review
             return {
                 "name": self.name, "running": self.running, "error": self.error,
+                "stopping": self.stop_requested,
+                "elapsed": int((self.finished or time.time()) - self.started) if self.started else 0,
                 "lines": self.lines[since:], "total": len(self.lines),
                 "review": ({k: rv[k] for k in ("title", "company", "url")} if rv else None),
             }
@@ -143,6 +147,23 @@ class _Stream(io.TextIOBase):
 
 
 # ------------------------------------------------------------------ helpers
+
+FIX_PACKAGES = "python -m pip install -r requirements.txt"
+
+
+def missing_packages() -> list[str]:
+    """Packages from requirements.txt that aren't installed (e.g. after a `git pull`)."""
+    import importlib.util
+    mods = {"ruamel.yaml": "ruamel", "flask": "flask", "playwright": "playwright",
+            "docx": "python-docx", "anthropic": "anthropic", "requests": "requests"}
+    out = []
+    for mod, pkg in mods.items():
+        try:
+            if importlib.util.find_spec(mod) is None:
+                out.append(pkg)
+        except ModuleNotFoundError:
+            out.append(pkg)
+    return out
 
 def _ensure_files(config_path: Path):
     """First run: copy the example config/profile next to the config path."""
@@ -448,6 +469,7 @@ def create_app(config_path: str | Path) -> Flask:
             apply_mode=cfg["apply"]["mode"], applied_today=db.applied_today(),
             focus=normalize_focus(cfg["search"].get("focus")),
             example_profile=example,
+            missing_packages=missing_packages(), fix_packages=FIX_PACKAGES,
             adzuna={"enabled": bool(ad.get("enabled")), "has_keys": all(adzuna_keys(ad)),
                     "country": (ad.get("country") or "ca").lower(), "where": ad.get("where") or "",
                     "searches": _str_list(ad.get("searches"))},
@@ -463,7 +485,8 @@ def create_app(config_path: str | Path) -> Flask:
         mode = body.get("mode") if body.get("mode") in ("review", "auto") else None
         limit = body.get("limit")
         args = SimpleNamespace(limit=int(limit) if limit else None, mode=mode,
-                               key=body.get("key") or None, ask_human=runner.ask_human)
+                               key=body.get("key") or None, ask_human=runner.ask_human,
+                               should_stop=lambda: runner.stop_requested)
 
         def task():
             cfg, profile = cfg_profile()
@@ -477,6 +500,14 @@ def create_app(config_path: str | Path) -> Flask:
     @app.get("/api/task")
     def task_state():
         return jsonify(runner.state(int(request.args.get("since", 0))))
+
+    @app.post("/api/stop")
+    def stop():
+        if not runner.running:
+            return jsonify(error="Nothing is running."), 409
+        runner.stop_requested = True
+        print("Stop requested: finishing the current job first.")
+        return jsonify(ok=True)
 
     @app.post("/api/review")
     def review():
@@ -549,6 +580,9 @@ def create_app(config_path: str | Path) -> Flask:
             return jsonify(error="profile.yaml is missing. Create it on the Settings tab first."), 400
         try:
             write_preferences(config_path, profile_path, prefs)
+        except ModuleNotFoundError as e:
+            return jsonify(error=f"A package jobbot needs is missing ({e.name}). In PowerShell, stop "
+                                 f"jobbot (Ctrl+C), run: {FIX_PACKAGES} — then start it again."), 500
         except Exception as e:  # noqa: BLE001 - malformed YAML the user typed by hand
             return jsonify(error=f"Couldn't update your files ({e}). "
                                  "Check them on the Settings tab."), 400
@@ -566,6 +600,10 @@ def serve(config_path: str = "config.yaml", port: int = 8000, open_browser: bool
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     for noisy in ("httpx", "anthropic", "urllib3", "werkzeug"):
         logging.getLogger(noisy).setLevel(logging.WARNING)
+    missing = missing_packages()
+    if missing:
+        print(f"\n  WARNING: missing packages: {', '.join(missing)}\n"
+              f"  Some features won't work. Stop with Ctrl+C and run:\n    {FIX_PACKAGES}\n")
     config_path = Path(config_path).resolve()
     _ensure_files(config_path)
     app = create_app(config_path)

@@ -12,7 +12,7 @@ DEFAULTS: dict[str, Any] = {
     "output_dir": "output",
     "provider": "auto",             # auto | claude | ollama
     "model": "claude-opus-5-5",     # Claude model (provider: claude)
-    "ollama": {"model": "qwen2.5:7b", "host": "http://localhost:11434", "num_ctx": 16384,
+    "ollama": {"model": "qwen2.5:7b", "host": "http://localhost:11434", "num_ctx": 8192,
                "timeout_seconds": 900},
     "search": {
         "keywords": [],

@@ -166,6 +166,7 @@ textarea { width: 100%; min-height: 460px; font: 13px/1.5 ui-monospace, SFMono-R
         </select></div></div>
   </div>
 
+  <div id="running"></div>
   <div id="review"></div>
   <details class="logbox" id="logbox"><summary id="logsum">Activity log</summary><pre class="log" id="log">Nothing has run yet.</pre></details>
 
@@ -318,7 +319,13 @@ textarea { width: 100%; min-height: 460px; font: 13px/1.5 ui-monospace, SFMono-R
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const post = (url, body) => fetch(url, {method: "POST", headers: {"Content-Type": "application/json", "X-Jobbot": "1"},
-                                        body: JSON.stringify(body || {})}).then(async r => ({ok: r.ok, data: await r.json().catch(() => ({}))}));
+                                        body: JSON.stringify(body || {})})
+  .then(async r => {
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok && !data.error) data.error = `Error ${r.status} from jobbot. Check the PowerShell window running jobbot for details.`;
+    return {ok: r.ok, data};
+  })
+  .catch(() => ({ok: false, data: {error: "Can't reach jobbot. Is the PowerShell window running `python -m jobbot web` still open?"}}));
 const LABELS = {scored: "Good matches", ready: "Ready to apply", needs_manual: "Apply yourself", applied: "Applied",
                 rejected: "Not a fit", failed: "Problems", skipped: "Skipped", new: "Not scored yet", all: "All"};
 let filter = "scored", summary = null, logSince = 0, running = false, settingsWhich = "profile", ticks = 0, firstLoad = true;
@@ -338,6 +345,7 @@ async function refresh() {
   b.innerHTML = `<span class="dot"></span>AI: ${esc(ai.provider)}${ai.model ? " · " + esc(ai.model) : ""}${ai.ready ? "" : " · not ready"}`;
   b.title = ai.message;
   const msgs = [];
+  if (summary.missing_packages && summary.missing_packages.length) msgs.push(`Some packages jobbot needs are missing (${esc(summary.missing_packages.join(", "))}), so saving Preferences and other features won't work. In the PowerShell window, press Ctrl+C, run <code>${esc(summary.fix_packages)}</code>, then start jobbot again.`);
   if (summary.profile_error) msgs.push(`Your profile has a problem: ${esc(summary.profile_error)} Fix it on the Settings tab.`);
   if (summary.example_profile) msgs.push(`Your profile is still the example. Open <b>Settings → Your profile</b>, replace the example details with yours, and delete the line <code>example_profile: true</code>. Until then jobbot can find jobs but won't score them or write resumes.`);
   if (summary.adzuna.enabled && !summary.adzuna.has_keys) msgs.push(`Adzuna needs your free app ID and key. Get them at <a href="https://developer.adzuna.com" target="_blank" rel="noopener">developer.adzuna.com</a>, then add them on the <a href="#" onclick="show('prefs');return false">Preferences</a> tab.`);
@@ -430,7 +438,12 @@ async function poll() {
   }
   const was = running; running = s.running;
   document.querySelectorAll("[data-run], .acts .primary").forEach(b => b.disabled = running);
-  $("#logsum").textContent = running ? `Running: ${s.name}…` : s.name ? `Activity log (last run: ${s.name}${s.error ? ", failed" : ""})` : "Activity log";
+  const mins = t => t >= 60 ? `${Math.floor(t / 60)} min ${t % 60}s` : `${t}s`;
+  $("#logsum").textContent = running ? `Running: ${s.name}… (${mins(s.elapsed)})` : s.name ? `Activity log (last run: ${s.name}${s.error ? ", failed" : ""}, took ${mins(s.elapsed)})` : "Activity log";
+  const last = [...$("#log").textContent.trim().split("\n")].pop() || "";
+  $("#running").innerHTML = running && !s.review ? `<div class="panel row" style="margin-top:14px;justify-content:space-between">
+      <span><b>${s.stopping ? "Stopping after the current job…" : "Working…"}</b> <span class="via">${esc(last.trim().slice(0, 140))}</span></span>
+      <button class="ghost" onclick="stopTask()" ${s.stopping ? "disabled" : ""}>Stop</button></div>` : "";
   $("#review").innerHTML = s.review ? `<div class="panel review"><h3>Your turn: ${esc(s.review.title)} @ ${esc(s.review.company)}</h3>
       <p class="help">A browser window has the filled-in application. Check every answer, fix anything wrong, and click Submit in that window. Then tell jobbot what happened:</p>
       <div class="row"><button class="primary" onclick="answer('applied')">I submitted it</button>
@@ -439,6 +452,7 @@ async function poll() {
   if (running) { setTimeout(poll, 1000); if (++ticks % 5 === 0) refresh(); }
   else if (was) refresh();
 }
+async function stopTask() { await post("/api/stop"); poll(); }
 async function answer(a) { await post("/api/review", {answer: a}); poll(); }
 
 const HELP = {

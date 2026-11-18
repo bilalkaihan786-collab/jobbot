@@ -235,7 +235,7 @@ def test_ollama_scores_and_validates(profile, monkeypatch):
     assert len(sent) == 2
     body = sent[0]
     assert body["format"]["title"] == "FitAssessment" and body["stream"] is False
-    assert body["options"]["num_ctx"] == 16384
+    assert body["options"]["num_ctx"] == 8192 and body["keep_alive"] == "30m"
     assert "eeo" not in body["messages"][0]["content"]
 
 
@@ -560,3 +560,73 @@ def test_web_adzuna_preferences(web):
     assert s["example_profile"] is False
     r = c.post("/api/preferences", json=dict(p2, adzuna_searches=""), headers=H)
     assert "Adzuna search" in r.get_json()["error"]
+
+
+# ------------------------------------------------------------ progress, stop, missing packages
+
+def test_find_shows_progress_and_stops(tmp_path, monkeypatch, capsys, profile):
+    from types import SimpleNamespace
+    import jobbot.cli as cli
+    import jobbot.sources as sources
+    from jobbot.config import DEFAULTS
+    from jobbot.db import DB
+    from jobbot.models import FitAssessment
+    db = DB(str(tmp_path / "j.db"))
+    jobs = [make_job(title=f"Backend Engineer {i}", source_id=str(i)) for i in range(3)]
+    monkeypatch.setattr(sources, "fetch_all", lambda c: jobs)
+    calls = []
+
+    class FakeLLM:
+        def assess_fit(self, j):
+            calls.append(j.title)
+            return FitAssessment(score=80, worth_applying=True, reasons=[], missing_requirements=[],
+                                 red_flags=[])
+    monkeypatch.setattr(cli, "_llm", lambda *a: FakeLLM())
+    cfg = {**DEFAULTS, "search": {**DEFAULTS["search"], "keywords": ["backend"]}}
+    stop_after = {"n": 1}
+    cli.cmd_find(cfg, profile, db, SimpleNamespace(should_stop=lambda: len(calls) >= stop_after["n"]))
+    out = capsys.readouterr().out
+    assert "[1/3] scoring: Backend Engineer 0" in out and "good match: 80/100" in out
+    assert "Stopped." in out and len(calls) == 1
+    assert db.counts() == {"scored": 1, "new": 2}
+
+
+def test_web_stop_and_missing_packages(web, monkeypatch):
+    import time
+    import jobbot.web as webmod
+    app, c, tmp = web
+    runner = app.config["runner"]
+    assert c.post("/api/stop", headers=H).status_code == 409
+    seen = {}
+
+    def task():
+        while not runner.stop_requested:
+            time.sleep(0.01)
+        seen["stopped"] = True
+    runner.start("find", task)
+    assert c.post("/api/stop", headers=H).status_code == 200
+    for _ in range(200):
+        if not c.get("/api/task").get_json()["running"]:
+            break
+        time.sleep(0.01)
+    assert seen.get("stopped")
+    monkeypatch.setattr(webmod, "missing_packages", lambda: ["ruamel"])
+    s = c.get("/api/summary").get_json()
+    assert s["missing_packages"] == ["ruamel"] and "pip install -r requirements.txt" in s["fix_packages"]
+
+    def boom(*a):
+        raise ModuleNotFoundError("No module named 'ruamel'", name="ruamel")
+    monkeypatch.setattr(webmod, "write_preferences", boom)
+    p = c.get("/api/preferences").get_json()
+    r = c.post("/api/preferences", json=p, headers=H)
+    assert r.status_code == 500 and "pip install -r requirements.txt" in r.get_json()["error"]
+
+
+def test_old_large_ollama_context_is_reduced(profile, monkeypatch):
+    from jobbot.config import DEFAULTS
+    from jobbot.llm import make_llm
+    _fake_ollama(monkeypatch, [])
+    cfg = {**DEFAULTS, "provider": "ollama", "ollama": {**DEFAULTS["ollama"], "num_ctx": 16384}}
+    assert make_llm(cfg, profile).num_ctx == 8192
+    cfg["ollama"]["num_ctx"] = 4096
+    assert make_llm(cfg, profile).num_ctx == 4096

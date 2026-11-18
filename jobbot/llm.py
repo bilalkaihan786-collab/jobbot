@@ -63,12 +63,13 @@ class BaseLLM:
                max_tokens: int = 16000) -> T:
         raise NotImplementedError
 
-    @staticmethod
-    def _job_block(job: Job) -> str:
+    max_description_chars = 20000
+
+    def _job_block(self, job: Job) -> str:
         return (f"<job>\nCompany: {job.company}\nTitle: {job.title}\nLocation: {job.location}"
                 f"{' (remote)' if job.remote else ''}\n"
                 f"{'Salary: ' + job.salary + chr(10) if job.salary else ''}"
-                f"Description:\n{job.description[:20000]}\n</job>")
+                f"Description:\n{job.description[:self.max_description_chars]}\n</job>")
 
     def _focus_note(self, job: Job) -> str:
         from jobbot.filters import is_internship
@@ -258,8 +259,12 @@ class OllamaLLM(BaseLLM):
     in the same shapes as Claude's, then validates them with the same pydantic models.
     """
 
+    # Long postings are cut so the prompt fits a small context window: a big window makes
+    # local models much slower and can run a laptop out of memory.
+    max_description_chars = 6000
+
     def __init__(self, profile: dict, model: str = "qwen2.5:7b",
-                 host: str = "http://localhost:11434", num_ctx: int = 16384,
+                 host: str = "http://localhost:11434", num_ctx: int = 8192,
                  timeout: int = 900, focus: str = "jobs"):
         super().__init__(profile, focus)
         self.model = model
@@ -295,6 +300,7 @@ class OllamaLLM(BaseLLM):
                          {"role": "user", "content": content}],
             "format": json_schema,
             "stream": False,
+            "keep_alive": "30m",   # stay loaded between jobs instead of reloading each time
             "options": {"temperature": 0.3, "num_ctx": self.num_ctx,
                         "num_predict": min(max_tokens, 8000)},
         }
@@ -330,6 +336,7 @@ def make_llm(cfg: dict, profile: dict) -> BaseLLM:
         o = cfg.get("ollama") or {}
         return OllamaLLM(profile, model=o.get("model", "qwen2.5:7b"),
                          host=o.get("host", "http://localhost:11434"),
-                         num_ctx=int(o.get("num_ctx", 16384)),
+                         # 16384 was the old example value; it's slow on laptops.
+                         num_ctx=8192 if int(o.get("num_ctx", 8192)) == 16384 else int(o.get("num_ctx")),
                          timeout=int(o.get("timeout_seconds", 900)), focus=focus)
     raise SystemExit(f"Unknown provider '{provider}' in config.yaml (use claude, ollama or auto)")

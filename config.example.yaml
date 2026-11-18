@@ -13,7 +13,7 @@ model: claude-opus-5-5       # used when provider is claude
 ollama:
   model: qwen2.5:7b          # run `ollama pull qwen2.5:7b` once first
   host: http://localhost:11434
-  num_ctx: 16384             # context window; lower to 8192 if your PC runs out of memory
+  num_ctx: 8192              # context window; bigger = slower and more memory
   timeout_seconds: 900       # local models can be slow, especially without a GPU
 
 search:
@@ -63,7 +63,7 @@ sources:
 
 matching:
   min_score: 70              # Claude's 0-100 fit score needed to prepare an application
-  max_jobs_to_score: 50      # cost cap per `find` run
+  max_jobs_to_score: 15      # per `find` run; local AI takes ~0.5-3 min per job
 
 documents:
   cover_letter: when_accepted   # when_accepted | always | never

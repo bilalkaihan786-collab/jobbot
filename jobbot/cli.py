@@ -17,6 +17,15 @@ import sys
 import time
 from pathlib import Path
 
+def _stopped(args) -> bool:
+    """The web page's Stop button sets this between jobs."""
+    fn = getattr(args, "should_stop", None)
+    if fn and fn():
+        print("\nStopped. Finished jobs are saved; the rest will be picked up next time.")
+        return True
+    return False
+
+
 from jobbot import documents
 from jobbot.config import load_config, load_profile
 from jobbot.db import DB
@@ -74,13 +83,27 @@ def cmd_find(cfg, profile, db: DB, args):
     limit = cfg["matching"]["max_jobs_to_score"]
     if len(candidates) > limit:
         print(f"Scoring the first {limit} (matching.max_jobs_to_score); the rest stay 'new'.")
-    llm = _llm(cfg, profile) if candidates else None
     min_score = cfg["matching"]["min_score"]
     # Also score jobs left 'new' from earlier runs.
     backlog = [db.job(r) for r in db.by_status("new", order="first_seen")
                if r["key"] not in {c.key for c in candidates}]
-    for j in (candidates + backlog)[:limit]:
-        llm = llm or _llm(cfg, profile)
+    todo = (candidates + backlog)[:limit]
+    if not todo:
+        print(f"\nNothing new to score. Good matches waiting: {len(db.by_status('scored'))}")
+        return
+    llm = _llm(cfg, profile)
+    if type(llm).__name__ == "OllamaLLM":
+        print(f"\nScoring {len(todo)} jobs with the local AI on this computer. Each takes about "
+              "30 seconds to a few minutes (the first one also loads the model).\n"
+              "Good matches show up on the page as each one finishes. To go faster, lower "
+              "'Jobs to score per run' on the Preferences tab.")
+    else:
+        print(f"\nScoring {len(todo)} jobs.")
+    for i, j in enumerate(todo, 1):
+        if _stopped(args):
+            break
+        print(f"  [{i}/{len(todo)}] scoring: {j.title} @ {j.company} ...")
+        t0 = time.time()
         try:
             a = llm.assess_fit(j)
         except Exception as e:
@@ -89,8 +112,8 @@ def cmd_find(cfg, profile, db: DB, args):
         good = a.worth_applying and a.score >= min_score
         db.update(j.key, status="scored" if good else "rejected", score=a.score,
                   assessment=a.model_dump())
-        mark = "✓" if good else "·"
-        print(f"  {mark} {a.score:3d}  {j.title} @ {j.company}  [{j.location}]")
+        mark = "✓ good match" if good else "· not a fit"
+        print(f"        {mark}: {a.score}/100  ({time.time() - t0:.0f}s)")
     print(f"\nGood matches waiting: {len(db.by_status('scored'))}")
 
 
@@ -116,6 +139,8 @@ def cmd_prepare(cfg, profile, db: DB, args):
     llm = _llm(cfg, profile)
     cl_mode = cfg["documents"]["cover_letter"]
     for r in rows:
+        if _stopped(args):
+            break
         job = db.job(r)
         print(f"Preparing {job.title} @ {job.company} (score {r['score']})")
         try:
@@ -165,6 +190,8 @@ def cmd_apply(cfg, profile, db: DB, args):
     cl_mode = cfg["documents"]["cover_letter"]
 
     for i, r in enumerate(rows):
+        if _stopped(args):
+            break
         job = db.job(r)
         print(f"\n[{i + 1}/{len(rows)}] {job.title} @ {job.company}\n  {job.apply_url}")
         out_dir = Path(r["resume_path"]).parent
