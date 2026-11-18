@@ -7,6 +7,12 @@ from datetime import datetime, timedelta, timezone
 from jobbot.models import Job
 
 
+# Words in a job title that mark it as an internship / co-op / student position.
+INTERNSHIP_TERMS = ("intern", "interns", "internship", "internships", "co-op", "co-ops", "coop",
+                    "co op", "work term", "student", "apprentice", "apprenticeship")
+FOCUSES = ("jobs", "internships", "both")
+
+
 def _has(text: str, term: str) -> bool:
     return re.search(r"(?<![a-z0-9])" + re.escape(term.lower()) + r"(?![a-z0-9])", text) is not None
 
@@ -24,19 +30,35 @@ def _posted(job: Job) -> datetime | None:
         return None
 
 
+def is_internship(job: Job) -> bool:
+    title = job.title.lower()
+    return any(_has(title, t) for t in INTERNSHIP_TERMS)
+
+
 def passes(job: Job, search: dict) -> tuple[bool, str]:
+    """search.focus: jobs (regular roles), internships (internships/co-ops only), or both."""
     title = job.title.lower()
     text = f"{title}\n{job.description.lower()}"
+    focus = search.get("focus") or "jobs"
+    intern = is_internship(job)
+
+    if focus == "internships" and not intern:
+        return False, "not an internship or co-op"
 
     for term in search.get("exclude_keywords") or []:
+        # When internships are wanted, an "intern" exclusion left over from a regular search
+        # must not throw them away.
+        if focus != "jobs" and intern and term.lower().strip() in INTERNSHIP_TERMS:
+            continue
         if _has(title, term):
             return False, f"title contains excluded '{term}'"
 
     keywords = search.get("keywords") or []
     if keywords and not any(_has(title, k) for k in keywords):
         # Fall back to description, but require two hits so generic pages don't slip in.
+        # Internship titles are short ("Engineering Intern"), so one hit is enough for them.
         hits = sum(_has(text, k) for k in keywords)
-        if hits < 2:
+        if hits < (1 if focus != "jobs" and intern else 2):
             return False, "no keyword match"
 
     locations = [l.lower() for l in search.get("locations") or []]

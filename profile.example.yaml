@@ -50,6 +50,8 @@ skills:
   backend: [FastAPI, Django, PostgreSQL, Redis, Kafka, gRPC]
   infra: [AWS, Terraform, Docker, Kubernetes, GitHub Actions]
 
+# Students: add `details` (e.g. "Expected graduation May 2028 · GPA 3.7 · Coursework: ...").
+# For internship postings the resume puts Education first.
 education:
   - degree: B.S. Computer Science
     school: Rutgers University
@@ -63,6 +65,8 @@ preferences:
   min_salary_usd: 150000
   work_mode: remote or hybrid in NYC
   avoid: [defense, gambling]
+  # For internships / co-ops, say when and how long, e.g. "Summer 2027, 4-month co-op".
+  internship_term: ""
 
 # Answers to questions that show up on most applications. Add your own.
 # Anything not covered here that Claude can't answer from the profile is left for you.

@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>jobbot</title>
+<link rel="icon" href="data:,">
 <style>
 :root {
   --bg: #f6f7f9; --panel: #ffffff; --text: #1d2330; --muted: #667085; --line: #e3e6ec;
@@ -92,7 +93,38 @@ textarea { width: 100%; min-height: 460px; font: 13px/1.5 ui-monospace, SFMono-R
 .help { color: var(--muted); font-size: 13.5px; margin: 0 0 10px; }
 .saved { color: var(--good); font-size: 14px; }
 .err { color: var(--bad); font-size: 14px; }
+.toolbar { display: grid; grid-template-columns: minmax(200px, 1fr) auto auto auto auto; gap: 8px;
+           align-items: center; margin: 0 0 12px; }
+.toolbar input[type=search] { font: inherit; padding: 8px 12px; border-radius: 8px; border: 1px solid var(--line);
+                              background: var(--panel); color: var(--text); width: 100%; }
+.check { display: inline-flex; gap: 6px; align-items: center; font-size: 14px; white-space: nowrap; cursor: pointer; }
+.showing { color: var(--muted); font-size: 13px; margin: -4px 0 10px; }
+.tag { display: inline-block; font-size: 12px; padding: 2px 8px; border-radius: 6px; margin-left: 6px; vertical-align: 2px;
+       background: #f3e8ff; color: #7a3fc1; font-weight: 600; }
+@media (prefers-color-scheme: dark) { .tag { background: #2c1f45; color: #c9a7ff; } }
+.focus-badge { cursor: pointer; border: 0; font: inherit; font-size: 13px; }
+.form h3 { margin: 0 0 4px; font-size: 16px; }
+.form .panel { margin-bottom: 14px; }
+.form .sub { color: var(--muted); font-size: 13.5px; margin: 0 0 14px; }
+.fields { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 16px; }
+.field label { display: block; font-weight: 600; font-size: 14px; margin-bottom: 4px; }
+.field .hint { color: var(--muted); font-size: 12.5px; margin-top: 3px; }
+.field input[type=text], .field input[type=number], .field textarea.small { font: inherit; width: 100%; padding: 8px 10px;
+       border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--text); }
+.field textarea.small { min-height: 64px; resize: vertical; }
+.full { grid-column: 1 / -1; }
+.choices { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.choice { border: 1px solid var(--line); border-radius: 10px; padding: 12px; cursor: pointer; display: block; }
+.choice input { margin-right: 6px; }
+.choice b { font-size: 14.5px; }
+.choice span { display: block; color: var(--muted); font-size: 13px; margin-top: 4px; }
+.choice:has(input:checked) { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+.savebar { position: sticky; bottom: 0; background: var(--bg); padding: 12px 0; display: flex; gap: 12px; align-items: center;
+           border-top: 1px solid var(--line); }
 @media (max-width: 720px) {
+  .toolbar { grid-template-columns: 1fr 1fr; }
+  .toolbar input[type=search] { grid-column: 1 / -1; }
+  .fields, .choices { grid-template-columns: 1fr; }
   .steps { grid-template-columns: 1fr; }
   .job { grid-template-columns: 44px 1fr; }
   .score { width: 44px; height: 44px; font-size: 16px; }
@@ -105,7 +137,9 @@ textarea { width: 100%; min-height: 460px; font: 13px/1.5 ui-monospace, SFMono-R
 <header><div class="wrap top">
   <div class="brand">job<span>bot</span></div>
   <span id="ai" class="badge">Checking AI…</span>
+  <button id="focus" class="badge focus-badge" onclick="show('prefs')" hidden></button>
   <nav><button id="tab-jobs" class="on" onclick="show('jobs')">Jobs</button>
+       <button id="tab-prefs" onclick="show('prefs')">Preferences</button>
        <button id="tab-settings" onclick="show('settings')">Settings</button></nav>
 </div></header>
 
@@ -132,7 +166,100 @@ textarea { width: 100%; min-height: 460px; font: 13px/1.5 ui-monospace, SFMono-R
   <details class="logbox" id="logbox"><summary id="logsum">Activity log</summary><pre class="log" id="log">Nothing has run yet.</pre></details>
 
   <div class="chips" id="chips"></div>
+  <div class="toolbar">
+    <input type="search" id="q" placeholder="Search title, company or location" aria-label="Search jobs">
+    <select id="f-type" aria-label="Job type">
+      <option value="">All types</option><option value="intern">Internships &amp; co-ops</option><option value="regular">Regular jobs</option>
+    </select>
+    <select id="f-score" aria-label="Minimum score">
+      <option value="0">Any score</option><option value="50">50+</option><option value="70">70+</option><option value="80">80+</option>
+    </select>
+    <label class="check"><input type="checkbox" id="f-remote"> Remote only</label>
+    <select id="f-sort" aria-label="Sort">
+      <option value="score">Best match</option><option value="new">Newest</option><option value="company">Company A–Z</option>
+    </select>
+  </div>
+  <div class="showing" id="showing"></div>
   <div id="jobs"></div>
+</section>
+
+<section id="view-prefs" class="form" hidden>
+  <div class="panel">
+    <h3>What are you looking for?</h3>
+    <p class="sub">This changes which postings jobbot keeps, how it scores them, and how your resume is laid out.</p>
+    <div class="choices">
+      <label class="choice"><input type="radio" name="focus" value="jobs"><b>Jobs</b>
+        <span>Regular roles. Internship titles are filtered out.</span></label>
+      <label class="choice"><input type="radio" name="focus" value="internships"><b>Internships &amp; co-ops</b>
+        <span>Only internships, co-ops and student roles. Scored on eligibility, not years of experience. Resume leads with education.</span></label>
+      <label class="choice"><input type="radio" name="focus" value="both"><b>Both</b>
+        <span>Everything. Internships are judged as internships.</span></label>
+    </div>
+    <div class="fields" style="margin-top:14px">
+      <div class="field full" id="term-field"><label for="p-term">Internship / co-op term</label>
+        <input type="text" id="p-term" placeholder="e.g. Summer 2027, 4-month co-op starting May">
+        <div class="hint">Used when scoring, so postings for the wrong dates rank lower. Add your expected graduation date to Education in your profile.</div></div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h3>Search</h3>
+    <p class="sub">Separate items with commas. A posting passes if a keyword is in its title (or appears in the description).</p>
+    <div class="fields">
+      <div class="field"><label for="p-keywords">Keywords</label>
+        <textarea class="small" id="p-keywords" placeholder="software engineer, backend, python"></textarea>
+        <div class="hint" id="kw-hint">Role words, e.g. software engineer, data analyst, marketing.</div></div>
+      <div class="field"><label for="p-exclude">Leave out titles with</label>
+        <textarea class="small" id="p-exclude" placeholder="senior, staff, manager"></textarea>
+        <div class="hint">“intern” here is ignored when you want internships.</div></div>
+      <div class="field"><label for="p-locations">Locations</label>
+        <textarea class="small" id="p-locations" placeholder="Toronto, New York, Remote - US"></textarea></div>
+      <div class="field"><label>&nbsp;</label>
+        <label class="check"><input type="checkbox" id="p-remote"> Remote jobs are OK anywhere</label>
+        <div class="field" style="margin-top:12px"><label for="p-age">Ignore postings older than (days)</label>
+          <input type="number" id="p-age" min="0" max="365"></div></div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h3>What matters to you</h3>
+    <p class="sub">The AI weighs these when scoring each job.</p>
+    <div class="fields">
+      <div class="field"><label for="p-seniority">Level</label>
+        <input type="text" id="p-seniority" placeholder="e.g. mid to senior, or internship / co-op student">
+        <div class="hint" id="seniority-hint"></div></div>
+      <div class="field"><label for="p-workmode">Work mode</label>
+        <input type="text" id="p-workmode" placeholder="e.g. remote or hybrid in Toronto"></div>
+      <div class="field"><label for="p-salary">Minimum salary (USD per year)</label>
+        <input type="number" id="p-salary" min="0" step="1000" placeholder="Leave blank to skip">
+        <div class="hint" id="salary-hint"></div></div>
+      <div class="field"><label for="p-avoid">Industries to avoid</label>
+        <input type="text" id="p-avoid" placeholder="e.g. gambling, defense"></div>
+      <div class="field"><label for="p-minscore">Minimum fit score to prepare a resume</label>
+        <input type="number" id="p-minscore" min="0" max="100"><div class="hint">0–100. 70 is a realistic interview chance.</div></div>
+      <div class="field"><label for="p-maxscore">Jobs to score per run</label>
+        <input type="number" id="p-maxscore" min="1" max="1000"><div class="hint">Limits AI time and cost per “Find jobs”.</div></div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h3>Companies to watch</h3>
+    <p class="sub">Use the name from each company's careers page address, e.g. <b>stripe</b> in job-boards.greenhouse.io/<b>stripe</b>.</p>
+    <div class="fields">
+      <div class="field"><label for="p-gh">Greenhouse</label><textarea class="small" id="p-gh" placeholder="stripe, airbnb"></textarea>
+        <div class="hint">job-boards.greenhouse.io/<i>name</i></div></div>
+      <div class="field"><label for="p-lever">Lever</label><textarea class="small" id="p-lever" placeholder="plaid"></textarea>
+        <div class="hint">jobs.lever.co/<i>name</i></div></div>
+      <div class="field"><label for="p-ashby">Ashby</label><textarea class="small" id="p-ashby" placeholder="ramp, notion"></textarea>
+        <div class="hint">jobs.ashbyhq.com/<i>name</i></div></div>
+      <div class="field"><label>Remotive (remote jobs from many companies)</label>
+        <label class="check"><input type="checkbox" id="p-remotive"> Search Remotive too</label>
+        <input type="text" id="p-remotive-q" style="margin-top:8px" placeholder="Searches, e.g. python developer, data intern">
+        <div class="hint">You apply to these yourself; jobbot prepares the resume.</div></div>
+    </div>
+  </div>
+
+  <div class="savebar"><button class="primary" onclick="savePrefs()">Save preferences</button><span id="prefs-msg"></span></div>
 </section>
 
 <section id="view-settings" hidden>
@@ -161,8 +288,9 @@ const LABELS = {scored: "Good matches", ready: "Ready to apply", needs_manual: "
 let filter = "scored", summary = null, logSince = 0, running = false, settingsWhich = "profile", ticks = 0, firstLoad = true;
 
 function show(v) {
-  for (const x of ["jobs", "settings"]) { $("#view-" + x).hidden = x !== v; $("#tab-" + x).classList.toggle("on", x === v); }
+  for (const x of ["jobs", "prefs", "settings"]) { $("#view-" + x).hidden = x !== v; $("#tab-" + x).classList.toggle("on", x === v); }
   if (v === "settings") loadSettings(settingsWhich);
+  if (v === "prefs") loadPrefs();
 }
 
 async function refresh() {
@@ -171,12 +299,15 @@ async function refresh() {
   if (!summary.config_ok) { setup.innerHTML = `<div class="notice bad" style="margin-bottom:14px">${esc(summary.error)}</div>`; return; }
   const ai = summary.ai, b = $("#ai");
   b.className = "badge " + (ai.ready ? "ok" : "no");
-  b.innerHTML = `<span class="dot"></span>AI: ${esc(ai.provider)}${ai.model ? " · " + esc(ai.model) : ""}${ai.ready ? "" : " · " + esc(ai.message)}`;
+  b.innerHTML = `<span class="dot"></span>AI: ${esc(ai.provider)}${ai.model ? " · " + esc(ai.model) : ""}${ai.ready ? "" : " · not ready"}`;
+  b.title = ai.message;
   const msgs = [];
   if (summary.profile_error) msgs.push(`Your profile has a problem: ${esc(summary.profile_error)} Fix it on the Settings tab.`);
   if (!ai.ready) msgs.push(`The AI isn't ready: ${esc(ai.message)}`);
   setup.innerHTML = msgs.map(m => `<div class="notice warn" style="margin:0 0 14px">${m}</div>`).join("");
   if (!$("#mode").dataset.touched) $("#mode").value = summary.apply_mode;
+  const fb = $("#focus"), FL = {internships: "Internships & co-ops", both: "Jobs & internships"};
+  fb.hidden = !FL[summary.focus]; fb.textContent = FL[summary.focus] || "";
   if (firstLoad) {  // open on the first list that has something in it
     firstLoad = false;
     const c = summary.counts || {};
@@ -192,9 +323,25 @@ function renderJobs() {
   $("#chips").innerHTML = order.filter(s => counts[s] || s === filter || s === "scored")
     .map(s => `<button class="chip ${s === filter ? "on" : ""}" onclick="setFilter('${s}')">${LABELS[s]}<b>${counts[s] || 0}</b></button>`).join("")
     + `<button class="chip ${filter === "all" ? "on" : ""}" onclick="setFilter('all')">${LABELS.all}<b>${total}</b></button>`;
-  const jobs = summary.jobs.filter(j => filter === "all" || j.status === filter);
+  const inList = summary.jobs.filter(j => filter === "all" || j.status === filter);
+  const f = readFilters(), words = f.q.toLowerCase().split(/\s+/).filter(Boolean);
+  let jobs = inList.filter(j => {
+    const hay = `${j.title} ${j.company} ${j.location}`.toLowerCase();
+    return words.every(w => hay.includes(w))
+      && (!f.type || (f.type === "intern") === j.internship)
+      && (j.score ?? 0) >= f.minScore
+      && (!f.remote || j.remote);
+  });
+  const byScore = (a, b) => (b.score ?? -1) - (a.score ?? -1);
+  const newest = j => j.posted || j.first_seen || "";
+  jobs.sort(f.sort === "new" ? (a, b) => (newest(b) > newest(a) ? 1 : newest(b) < newest(a) ? -1 : byScore(a, b))
+          : f.sort === "company" ? (a, b) => a.company.localeCompare(b.company) || byScore(a, b) : byScore);
+  const filtered = words.length || f.type || f.minScore || f.remote;
+  $("#showing").textContent = filtered && inList.length ? `Showing ${jobs.length} of ${inList.length}` : "";
   if (!jobs.length) {
-    const hint = total ? "Nothing in this list." : "No jobs yet. Click <b>Find jobs</b> to start.";
+    const hint = !total ? "No jobs yet. Click <b>Find jobs</b> to start."
+      : filtered && inList.length ? `No jobs match your search. <a href="#" onclick="clearFilters();return false">Clear filters</a>`
+      : "Nothing in this list.";
     $("#jobs").innerHTML = `<div class="panel empty">${hint}</div>`; return;
   }
   $("#jobs").innerHTML = jobs.map(jobCard).join("");
@@ -213,7 +360,7 @@ function jobCard(j) {
   if (j.status !== "applied") acts.push(`<button class="ghost" onclick='mark(${k}, "applied")'>Mark applied</button>`);
   if (!["skipped", "applied"].includes(j.status)) acts.push(`<button class="ghost" onclick='mark(${k}, "skipped")'>Skip</button>`);
   return `<div class="job"><div class="score ${cls}">${sc}</div><div>
-    <h4>${esc(j.title)}<span class="status ${esc(j.status)}">${esc(LABELS[j.status] || j.status)}</span></h4>
+    <h4>${esc(j.title)}<span class="status ${esc(j.status)}">${esc(LABELS[j.status] || j.status)}</span>${j.internship ? `<span class="tag">Internship / co-op</span>` : ""}</h4>
     <div class="meta">${esc(j.company)} · ${esc(j.location || "Location not listed")}${j.remote ? " · Remote" : ""}</div>
     ${why ? `<ul class="why">${why}</ul>` : ""}
     ${j.note ? `<div class="note">${esc(j.note)}</div>` : ""}
@@ -271,6 +418,72 @@ async function saveSettings() {
   if (r.ok) refresh();
 }
 
+// ---- search & filters (remembered in this browser)
+const FILTER_IDS = {q: "#q", type: "#f-type", minScore: "#f-score", remote: "#f-remote", sort: "#f-sort"};
+function readFilters() {
+  return {q: $("#q").value.trim(), type: $("#f-type").value, minScore: +$("#f-score").value,
+          remote: $("#f-remote").checked, sort: $("#f-sort").value};
+}
+function saveFilters() { try { localStorage.setItem("jobbot-filters", JSON.stringify(readFilters())); } catch (e) {} }
+function restoreFilters() {
+  let f = null; try { f = JSON.parse(localStorage.getItem("jobbot-filters")); } catch (e) {}
+  if (!f) return;
+  $("#q").value = f.q || ""; $("#f-type").value = f.type || ""; $("#f-score").value = String(f.minScore || 0);
+  $("#f-remote").checked = !!f.remote; $("#f-sort").value = f.sort || "score";
+}
+function clearFilters() { $("#q").value = ""; $("#f-type").value = ""; $("#f-score").value = "0"; $("#f-remote").checked = false; saveFilters(); renderJobs(); }
+for (const sel of Object.values(FILTER_IDS)) $(sel).addEventListener(sel === "#q" ? "input" : "change", () => { saveFilters(); if (summary) renderJobs(); });
+
+// ---- preferences form
+const csv = a => (a || []).join(", ");
+async function loadPrefs() {
+  $("#prefs-msg").innerHTML = "";
+  const r = await fetch("/api/preferences"), p = await r.json();
+  if (!r.ok) { $("#prefs-msg").innerHTML = `<span class="err">${esc(p.error)}</span>`; return; }
+  document.querySelectorAll("input[name=focus]").forEach(x => x.checked = x.value === p.focus);
+  $("#p-term").value = p.internship_term; $("#p-keywords").value = csv(p.keywords); $("#p-exclude").value = csv(p.exclude_keywords);
+  $("#p-locations").value = csv(p.locations); $("#p-remote").checked = p.remote_ok; $("#p-age").value = p.max_age_days;
+  $("#p-seniority").value = p.seniority; $("#p-workmode").value = p.work_mode; $("#p-salary").value = p.min_salary_usd;
+  $("#p-avoid").value = csv(p.avoid); $("#p-minscore").value = p.min_score; $("#p-maxscore").value = p.max_jobs_to_score;
+  $("#p-gh").value = csv(p.greenhouse); $("#p-lever").value = csv(p.lever); $("#p-ashby").value = csv(p.ashby);
+  $("#p-remotive").checked = p.remotive_enabled; $("#p-remotive-q").value = csv(p.remotive_searches);
+  focusChanged();
+}
+function focusChanged() {
+  const f = (document.querySelector("input[name=focus]:checked") || {}).value;
+  $("#term-field").hidden = f === "jobs";
+  $("#salary-hint").textContent = f !== "jobs" && +$("#p-salary").value >= 40000
+    ? "Internships usually pay less than full-time roles. Lower or clear this so they aren't scored down." : "";
+  $("#kw-hint").textContent = f === "internships"
+    ? "Field words work best for internships, e.g. software, data, marketing, engineering."
+    : "Role words, e.g. software engineer, data analyst, marketing.";
+}
+document.querySelectorAll("input[name=focus]").forEach(x => x.addEventListener("change", () => {
+  focusChanged();
+  // A level like "senior IC" would make every internship score badly.
+  const f = document.querySelector("input[name=focus]:checked").value, s = $("#p-seniority");
+  if (f === "internships" && !/intern|co-?op|student/i.test(s.value)) {
+    $("#seniority-hint").textContent = s.value.trim() ? `Changed from “${s.value.trim()}” to match internships. Edit if needed.` : "";
+    s.value = "internship / co-op student";
+  }
+}));
+async function savePrefs() {
+  const body = {
+    focus: (document.querySelector("input[name=focus]:checked") || {}).value,
+    internship_term: $("#p-term").value, keywords: $("#p-keywords").value, exclude_keywords: $("#p-exclude").value,
+    locations: $("#p-locations").value, remote_ok: $("#p-remote").checked, max_age_days: $("#p-age").value,
+    seniority: $("#p-seniority").value, work_mode: $("#p-workmode").value, min_salary_usd: $("#p-salary").value,
+    avoid: $("#p-avoid").value, min_score: $("#p-minscore").value, max_jobs_to_score: $("#p-maxscore").value,
+    greenhouse: $("#p-gh").value, lever: $("#p-lever").value, ashby: $("#p-ashby").value,
+    remotive_enabled: $("#p-remotive").checked, remotive_searches: $("#p-remotive-q").value,
+  };
+  const r = await post("/api/preferences", body);
+  $("#prefs-msg").innerHTML = r.ok ? `<span class="saved">Saved. Click <b>Find jobs</b> to search with these.</span>`
+                                   : `<span class="err">${esc(r.data.error || "Couldn't save.")}</span>`;
+  if (r.ok) refresh();
+}
+
+restoreFilters();
 refresh(); poll();
 </script>
 </body>

@@ -20,6 +20,7 @@ DEFAULTS: dict[str, Any] = {
         "locations": [],
         "remote_ok": True,
         "max_age_days": 30,
+        "focus": "jobs",            # jobs | internships | both
     },
     "sources": {"greenhouse": [], "lever": [], "ashby": [], "remotive": {"enabled": False}},
     "matching": {"min_score": 70, "max_jobs_to_score": 50},

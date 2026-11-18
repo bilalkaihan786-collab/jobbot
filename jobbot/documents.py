@@ -18,7 +18,7 @@ def slug(s: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", s.lower()).strip("-")[:60]
 
 
-def build_resume_data(profile: dict, t: TailoredResume) -> dict:
+def build_resume_data(profile: dict, t: TailoredResume, education_first: bool = False) -> dict:
     """Merge Claude's tailored text with facts copied verbatim from the profile."""
     exp_by_id = {e["id"]: e for e in profile["experience"]}
     proj_by_id = {p["id"]: p for p in profile.get("projects") or []}
@@ -43,6 +43,7 @@ def build_resume_data(profile: dict, t: TailoredResume) -> dict:
         "roles": roles, "projects": projects,
         "education": profile.get("education") or [],
         "certifications": profile.get("certifications") or [],
+        "education_first": education_first,   # student resumes lead with education
     }
 
 
@@ -72,6 +73,16 @@ def resume_html(d: dict) -> str:
              f"<div class=headline>{e(d['headline'])}</div>"]
     if d["summary"]:
         parts.append(f"<h2>Summary</h2><p>{e(d['summary'])}</p>")
+    edu = []
+    if d["education"]:
+        edu.append("<h2>Education</h2>")
+        for ed in d["education"]:
+            line = ", ".join(x for x in [ed.get("degree"), ed.get("school")] if x)
+            edu.append(f"<div class=row><span><b>{e(line)}</b>"
+                       f"{' — ' + e(ed['details']) if ed.get('details') else ''}</span>"
+                       f"<span class=muted>{e(str(ed.get('year', '')))}</span></div>")
+    if d.get("education_first"):
+        parts.extend(edu)
     if d["skills"]:
         parts.append(f"<h2>Skills</h2><p>{e(' · '.join(d['skills']))}</p>")
     parts.append("<h2>Experience</h2>")
@@ -86,13 +97,8 @@ def resume_html(d: dict) -> str:
         for p in d["projects"]:
             url = f" <span class=muted>{e(p['url'])}</span>" if p["url"] else ""
             parts.append(f"<p><b>{e(p['name'])}</b>{url} — {e(p['description'])}</p>")
-    if d["education"]:
-        parts.append("<h2>Education</h2>")
-        for ed in d["education"]:
-            line = ", ".join(x for x in [ed.get("degree"), ed.get("school")] if x)
-            parts.append(f"<div class=row><span><b>{e(line)}</b>"
-                         f"{' — ' + e(ed['details']) if ed.get('details') else ''}</span>"
-                         f"<span class=muted>{e(str(ed.get('year', '')))}</span></div>")
+    if not d.get("education_first"):
+        parts.extend(edu)
     if d["certifications"]:
         parts.append("<h2>Certifications</h2><p>" +
                      e(" · ".join(map(str, d["certifications"]))) + "</p>")
@@ -152,6 +158,16 @@ def resume_docx(d: dict, out: Path) -> Path:
 
     if d["summary"]:
         section("Summary"); doc.add_paragraph(d["summary"])
+
+    def education():
+        if d["education"]:
+            section("Education")
+            for ed in d["education"]:
+                doc.add_paragraph(", ".join(str(x) for x in [ed.get("degree"), ed.get("school"),
+                                                             ed.get("year"), ed.get("details")] if x))
+
+    if d.get("education_first"):
+        education()
     if d["skills"]:
         section("Skills"); doc.add_paragraph(" · ".join(d["skills"]))
     section("Experience")
@@ -167,11 +183,8 @@ def resume_docx(d: dict, out: Path) -> Path:
         for pr in d["projects"]:
             p = doc.add_paragraph(); p.add_run(pr["name"]).bold = True
             p.add_run(f" — {pr['description']}")
-    if d["education"]:
-        section("Education")
-        for ed in d["education"]:
-            doc.add_paragraph(", ".join(str(x) for x in [ed.get("degree"), ed.get("school"),
-                                                         ed.get("year")] if x))
+    if not d.get("education_first"):
+        education()
     if d["certifications"]:
         section("Certifications"); doc.add_paragraph(" · ".join(map(str, d["certifications"])))
     doc.save(out)
@@ -202,7 +215,8 @@ def job_dir(output_dir: str, job: Job) -> Path:
 
 def write_resume(profile: dict, job: Job, t: TailoredResume, output_dir: str,
                  formats: list[str]) -> Path:
-    d = build_resume_data(profile, t)
+    from jobbot.filters import is_internship
+    d = build_resume_data(profile, t, education_first=is_internship(job))
     folder = job_dir(output_dir, job)
     base = f"{slug(profile['name'])}-resume"
     pdf = folder / f"{base}.pdf"

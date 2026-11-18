@@ -17,6 +17,10 @@ ollama:
   timeout_seconds: 900       # local models can be slow, especially without a GPU
 
 search:
+  # jobs        = regular roles (titles with "intern" etc. are excluded below)
+  # internships = only internships, co-ops and student positions
+  # both        = everything; internship titles are never excluded
+  focus: jobs
   # A job passes if any keyword is in the title (or 2+ appear in the description).
   keywords: ["software engineer", "backend", "python", "platform engineer"]
   exclude_keywords: ["staff", "principal", "director", "intern", "manager"]

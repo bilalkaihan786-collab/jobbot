@@ -47,6 +47,17 @@ def cmd_find(cfg, profile, db: DB, args):
             db.update(j.key, status="filtered", note=why)
     print(f"{len(candidates)} passed keyword/location filters.")
 
+    # Preferences may have changed (e.g. switched to internships): give earlier
+    # filtered-out postings another look. Revived jobs are scored with the backlog below.
+    revived = 0
+    for r in db.by_status("filtered", order="first_seen"):
+        j = db.job(r)
+        if passes(j, cfg["search"])[0]:
+            db.update(j.key, status="new", note=None)
+            revived += 1
+    if revived:
+        print(f"{revived} earlier postings now match your preferences.")
+
     limit = cfg["matching"]["max_jobs_to_score"]
     if len(candidates) > limit:
         print(f"Scoring the first {limit} (matching.max_jobs_to_score); the rest stay 'new'.")

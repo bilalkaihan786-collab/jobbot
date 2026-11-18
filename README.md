@@ -51,7 +51,27 @@ generated resumes. In review mode, when a form is filled in, the page asks you t
 browser window and click Submit there, then tell jobbot what happened. Keep the terminal window
 open while you use it; press Ctrl+C there to stop.
 
+The Jobs tab has a search box and filters (internships only, minimum score, remote only) with
+sorting by best match, newest or company. The **Preferences** tab is a form for what you're looking
+for: keywords, locations, companies, level, salary and more. It saves into `config.yaml` and
+`profile.yaml` and keeps their comments.
+
 Use `--port 8080` to pick another port, or `--no-browser` to skip opening a tab.
+
+### Internships and co-ops
+
+Set **What are you looking for?** on the Preferences tab (or `search.focus` in config.yaml):
+
+| focus | what happens |
+|---|---|
+| `jobs` (default) | Regular roles; titles with "intern" etc. are filtered out by `exclude_keywords`. |
+| `internships` | Only internships, co-ops and student roles. Scoring judges eligibility (enrolment, graduation date, term dates) instead of years of experience. |
+| `both` | Everything; internship postings are judged as internships. |
+
+Put your term in `preferences.internship_term` (e.g. "Summer 2027, 4-month co-op") and your expected
+graduation date in your profile's education `details`. Resumes for internship postings list
+Education first. After changing the focus, **Find jobs** looks again at postings it filtered out
+before.
 
 ## Command line
 

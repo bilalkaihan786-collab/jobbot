@@ -28,6 +28,7 @@ from flask import Flask, abort, jsonify, request, send_from_directory
 
 from jobbot.config import REQUIRED_PROFILE_KEYS, load_config, load_profile
 from jobbot.db import DB
+from jobbot.filters import FOCUSES, is_internship
 
 log = logging.getLogger(__name__)
 STATIC = Path(__file__).parent / "static"
@@ -199,12 +200,156 @@ def _job_row(db: DB, r, out_root: Path) -> dict:
         "key": r["key"], "status": r["status"], "score": r["score"],
         "title": j.title, "company": j.company, "location": j.location,
         "remote": j.remote, "url": j.url, "apply_url": j.apply_url, "source": j.source,
+        "internship": is_internship(j), "posted": j.posted_at, "first_seen": r["first_seen"],
         "can_auto_apply": j.can_auto_apply, "note": r["note"], "updated": r["updated"],
         "reasons": a.get("reasons", []),
         "concerns": a.get("missing_requirements", []) + a.get("red_flags", []),
         "resume": _rel(r["resume_path"], out_root),
         "cover_letter": _rel(r["cover_letter_path"], out_root),
     }
+
+
+# ------------------------------------------------------------------ preferences form
+# Reads and writes the job-search settings spread over config.yaml and profile.yaml.
+# ruamel.yaml round-trips the files so their comments and layout survive a save.
+
+def _yaml():
+    from ruamel.yaml import YAML
+    y = YAML()
+    y.preserve_quotes = True
+    y.width = 4096
+    y.indent(mapping=2, sequence=4, offset=2)
+    return y
+
+
+def _str_list(v) -> list[str]:
+    if isinstance(v, str):
+        v = v.replace("\n", ",").split(",")
+    return [str(x).strip() for x in (v or []) if str(x).strip()]
+
+
+def _set_list(parent, key, values):
+    from ruamel.yaml.comments import CommentedSeq
+    old = parent.get(key)
+    seq = CommentedSeq(values)
+    if not isinstance(old, CommentedSeq) or old.fa.flow_style():
+        seq.fa.set_flow_style()          # keep `[a, b]` style (also for new keys)
+    parent[key] = seq
+
+
+def _section(parent, key):
+    from ruamel.yaml.comments import CommentedMap
+    if not isinstance(parent.get(key), dict):
+        parent[key] = CommentedMap()
+    return parent[key]
+
+
+def read_preferences(cfg: dict, profile: dict) -> dict:
+    s, m, src = cfg["search"], cfg["matching"], cfg["sources"]
+    prefs = profile.get("preferences") or {}
+    rem = src.get("remotive") or {}
+    return {
+        "focus": s.get("focus") or "jobs",
+        "keywords": _str_list(s.get("keywords")),
+        "exclude_keywords": _str_list(s.get("exclude_keywords")),
+        "locations": _str_list(s.get("locations")),
+        "remote_ok": bool(s.get("remote_ok", True)),
+        "max_age_days": s.get("max_age_days") or 0,
+        "min_score": m.get("min_score", 70),
+        "max_jobs_to_score": m.get("max_jobs_to_score", 50),
+        "greenhouse": _str_list(src.get("greenhouse")),
+        "lever": _str_list(src.get("lever")),
+        "ashby": _str_list(src.get("ashby")),
+        "remotive_enabled": bool(rem.get("enabled")),
+        "remotive_searches": _str_list(rem.get("searches")),
+        "seniority": prefs.get("seniority") or "",
+        "min_salary_usd": prefs.get("min_salary_usd") or "",
+        "work_mode": prefs.get("work_mode") or "",
+        "avoid": _str_list(prefs.get("avoid")),
+        "internship_term": prefs.get("internship_term") or "",
+    }
+
+
+def validate_preferences(b: dict) -> tuple[dict, str | None]:
+    def num(key, lo, hi, allow_blank=False):
+        v = b.get(key)
+        if allow_blank and v in ("", None):
+            return None
+        try:
+            v = int(float(v))
+        except (TypeError, ValueError):
+            raise ValueError(key)
+        if not lo <= v <= hi:
+            raise ValueError(key)
+        return v
+    labels = {"max_age_days": "Maximum job age (0-365 days)", "min_score": "Minimum fit score (0-100)",
+              "max_jobs_to_score": "Jobs to score per run (1-1000)",
+              "min_salary_usd": "Minimum salary (a number, or blank)"}
+    try:
+        out = {
+            "focus": b.get("focus") if b.get("focus") in FOCUSES else None,
+            "max_age_days": num("max_age_days", 0, 365),
+            "min_score": num("min_score", 0, 100),
+            "max_jobs_to_score": num("max_jobs_to_score", 1, 1000),
+            "min_salary_usd": num("min_salary_usd", 0, 10_000_000, allow_blank=True),
+        }
+    except ValueError as e:
+        return {}, f"Check this field: {labels[e.args[0]]}"
+    if not out["focus"]:
+        return {}, "Pick what you're looking for: jobs, internships or both."
+    for k in ("keywords", "exclude_keywords", "locations", "greenhouse", "lever", "ashby",
+              "remotive_searches", "avoid"):
+        out[k] = _str_list(b.get(k))
+    for k in ("seniority", "work_mode", "internship_term"):
+        out[k] = str(b.get(k) or "").strip()
+    out["remote_ok"] = bool(b.get("remote_ok"))
+    out["remotive_enabled"] = bool(b.get("remotive_enabled"))
+    if not (out["greenhouse"] or out["lever"] or out["ashby"] or out["remotive_enabled"]):
+        return {}, "Add at least one company to watch, or turn on Remotive."
+    return out, None
+
+
+def write_preferences(config_path: Path, profile_path: Path, p: dict):
+    y = _yaml()
+    cfg = y.load(config_path.read_text()) if config_path.exists() else None
+    if cfg is None:
+        from ruamel.yaml.comments import CommentedMap
+        cfg = CommentedMap()
+    s = _section(cfg, "search")
+    s["focus"] = p["focus"]
+    for k in ("keywords", "exclude_keywords", "locations"):
+        _set_list(s, k, p[k])
+    s["remote_ok"] = p["remote_ok"]
+    s["max_age_days"] = p["max_age_days"]
+    m = _section(cfg, "matching")
+    m["min_score"] = p["min_score"]
+    m["max_jobs_to_score"] = p["max_jobs_to_score"]
+    src = _section(cfg, "sources")
+    for k in ("greenhouse", "lever", "ashby"):
+        _set_list(src, k, p[k])
+    rem = _section(src, "remotive")
+    rem["enabled"] = p["remotive_enabled"]
+    _set_list(rem, "searches", p["remotive_searches"])
+
+    prof = y.load(profile_path.read_text())
+    pr = _section(prof, "preferences")
+    pr["seniority"] = p["seniority"]
+    if p["min_salary_usd"] is None:
+        pr.pop("min_salary_usd", None)
+    else:
+        pr["min_salary_usd"] = p["min_salary_usd"]
+    pr["work_mode"] = p["work_mode"]
+    _set_list(pr, "avoid", p["avoid"])
+    pr["internship_term"] = p["internship_term"]
+
+    # Write both only after both serialise, so a failure can't leave one half-saved.
+    bufs = []
+    for data in (cfg, prof):
+        buf = io.StringIO()
+        y.dump(data, buf)
+        bufs.append(buf.getvalue())
+    config_path.write_text(bufs[0])
+    profile_path.write_text(bufs[1])
 
 
 # ------------------------------------------------------------------ app
@@ -269,6 +414,7 @@ def create_app(config_path: str | Path) -> Flask:
             config_ok=True, profile_error=profile_error,
             counts=db.counts(), ai=ai_status(cfg),
             apply_mode=cfg["apply"]["mode"], applied_today=db.applied_today(),
+            focus=cfg["search"].get("focus") or "jobs",
             jobs=[_job_row(db, r, out_root) for r in rows],
         )
 
@@ -345,6 +491,31 @@ def create_app(config_path: str | Path) -> Flask:
                 return jsonify(error=f"Missing required fields: {', '.join(missing)}"), 400
         p = _settings_path(which)
         p.write_text(text)
+        return jsonify(ok=True)
+
+    @app.get("/api/preferences")
+    def get_preferences():
+        cfg = _load_config(config_path)
+        try:
+            profile = load_profile(cfg["profile"])
+        except SystemExit as e:
+            return jsonify(error=str(e.code)), 400
+        return jsonify(read_preferences(cfg, profile))
+
+    @app.post("/api/preferences")
+    def save_preferences():
+        cfg = _load_config(config_path)
+        prefs, err = validate_preferences(request.get_json(silent=True) or {})
+        if err:
+            return jsonify(error=err), 400
+        profile_path = Path(cfg["profile"])
+        if not profile_path.exists():
+            return jsonify(error="profile.yaml is missing. Create it on the Settings tab first."), 400
+        try:
+            write_preferences(config_path, profile_path, prefs)
+        except Exception as e:  # noqa: BLE001 - malformed YAML the user typed by hand
+            return jsonify(error=f"Couldn't update your files ({e}). "
+                                 "Check them on the Settings tab."), 400
         return jsonify(ok=True)
 
     @app.get("/files/<path:rel>")

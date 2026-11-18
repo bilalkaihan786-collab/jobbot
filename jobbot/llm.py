@@ -51,8 +51,9 @@ class RefusedError(RuntimeError):
 class BaseLLM:
     """Prompts and output checks shared by every backend. Subclasses implement _parse()."""
 
-    def __init__(self, profile: dict):
+    def __init__(self, profile: dict, focus: str = "jobs"):
         self.profile = profile
+        self.focus = focus
         public = {k: v for k, v in profile.items() if k not in ("eeo",)}
         self.system_text = SYSTEM.format(
             profile=yaml.safe_dump(public, sort_keys=False, allow_unicode=True))
@@ -68,12 +69,26 @@ class BaseLLM:
                 f"{'Salary: ' + job.salary + chr(10) if job.salary else ''}"
                 f"Description:\n{job.description[:20000]}\n</job>")
 
+    def _focus_note(self, job: Job) -> str:
+        from jobbot.filters import is_internship
+        if self.focus == "internships":
+            return ("The candidate is looking ONLY for internships or co-op positions. Judge them "
+                    "as an internship/co-op applicant: do not penalise limited professional "
+                    "experience; do check eligibility (enrolment, year of study, graduation date, "
+                    "work authorization) and that the term/dates fit their preferences. Set "
+                    "worth_applying=false if this is not an internship or co-op.\n\n")
+        if self.focus == "both" and is_internship(job):
+            return ("This is an internship/co-op posting and the candidate is open to those: "
+                    "judge eligibility and term dates rather than years of experience.\n\n")
+        return ""
+
     # -------------------------------------------------------------- tasks
     def assess_fit(self, job: Job) -> FitAssessment:
         prefs = json.dumps(self.profile.get("preferences") or {}, ensure_ascii=False)
         prompt = (
             f"{self._job_block(job)}\n\n"
             f"Candidate preferences: {prefs}\n\n"
+            f"{self._focus_note(job)}"
             "Assess how well this candidate fits this job. Score 0-100 where 70+ means a "
             "realistic shot at an interview. Be honest: penalise missing hard requirements "
             "(years, degrees, clearances, required tech) and seniority mismatches. Set "
@@ -82,9 +97,14 @@ class BaseLLM:
         return self._parse(prompt, FitAssessment, effort="low", max_tokens=4000)
 
     def tailor_resume(self, job: Job) -> TailoredResume:
+        from jobbot.filters import is_internship
+        student = ("- This is an internship/co-op application: keep the summary to 1-2 sentences "
+                   "on what the student brings, and include relevant projects.\n"
+                   if is_internship(job) else "")
         prompt = (
             f"{self._job_block(job)}\n\n"
             "Tailor the candidate's resume for this job.\n"
+            f"{student}"
             "- roles: include every experience entry that is relevant (usually all recent "
             "ones), referenced by its `id`, most recent first. For each, write 2-6 bullets by "
             "selecting and rephrasing the profile's bullets for that role so the most relevant "
@@ -172,8 +192,8 @@ def _flatten_skills(skills) -> list[str]:
 class LLM(BaseLLM):
     """Claude via the Anthropic API."""
 
-    def __init__(self, profile: dict, model: str = "claude-opus-5-5"):
-        super().__init__(profile)
+    def __init__(self, profile: dict, model: str = "claude-opus-5-5", focus: str = "jobs"):
+        super().__init__(profile, focus)
         self.client = anthropic.Anthropic()
         self.model = model
         self.system = [{
@@ -219,8 +239,8 @@ class OllamaLLM(BaseLLM):
 
     def __init__(self, profile: dict, model: str = "qwen2.5:7b",
                  host: str = "http://localhost:11434", num_ctx: int = 16384,
-                 timeout: int = 900):
-        super().__init__(profile)
+                 timeout: int = 900, focus: str = "jobs"):
+        super().__init__(profile, focus)
         self.model = model
         self.host = host.rstrip("/")
         self.num_ctx = num_ctx
@@ -279,15 +299,16 @@ class OllamaLLM(BaseLLM):
 def make_llm(cfg: dict, profile: dict) -> BaseLLM:
     """provider: claude | ollama | auto (Claude if ANTHROPIC_API_KEY is set, else Ollama)."""
     provider = (cfg.get("provider") or "auto").lower()
+    focus = (cfg.get("search") or {}).get("focus") or "jobs"
     if provider == "auto":
         provider = "claude" if os.environ.get("ANTHROPIC_API_KEY") else "ollama"
         log.info("Using %s (provider: auto)", provider)
     if provider == "claude":
-        return LLM(profile, model=cfg["model"])
+        return LLM(profile, model=cfg["model"], focus=focus)
     if provider == "ollama":
         o = cfg.get("ollama") or {}
         return OllamaLLM(profile, model=o.get("model", "qwen2.5:7b"),
                          host=o.get("host", "http://localhost:11434"),
                          num_ctx=int(o.get("num_ctx", 16384)),
-                         timeout=int(o.get("timeout_seconds", 900)))
+                         timeout=int(o.get("timeout_seconds", 900)), focus=focus)
     raise SystemExit(f"Unknown provider '{provider}' in config.yaml (use claude, ollama or auto)")

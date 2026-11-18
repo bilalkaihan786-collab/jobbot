@@ -347,3 +347,82 @@ def test_web_review_question_answered_from_page(web):
         time.sleep(0.02)
     assert result["v"][0] == "applied"
     assert any("Waiting for you" in line for line in c.get("/api/task").get_json()["lines"])
+
+
+# ------------------------------------------------------------ internships / co-ops
+
+def test_internship_focus_filters():
+    from jobbot.filters import is_internship
+    base = {"keywords": ["software", "backend"], "exclude_keywords": ["senior", "intern"],
+            "locations": ["new york"], "remote_ok": True, "max_age_days": 0}
+    intern = make_job(title="Software Engineering Intern (Summer 2027)")
+    coop = make_job(title="Backend Developer Co-op")
+    regular = make_job(title="Backend Engineer")
+    assert is_internship(intern) and is_internship(coop) and not is_internship(regular)
+    jobs = {**base, "focus": "jobs"}
+    assert not passes(intern, jobs)[0] and passes(regular, jobs)[0]      # "intern" excluded as before
+    only = {**base, "focus": "internships"}
+    assert passes(intern, only)[0] and passes(coop, only)[0]
+    assert passes(regular, only) == (False, "not an internship or co-op")
+    both = {**base, "focus": "both"}
+    assert passes(intern, both)[0] and passes(regular, both)[0]
+    assert not passes(make_job(title="Senior Software Intern"), only)[0]  # other exclusions still apply
+    # short intern titles pass on a single description hit
+    short = make_job(title="Summer Intern", description="Join our software team.")
+    assert passes(short, only)[0] and not passes(short, {**only, "keywords": ["marketing"]})[0]
+
+
+def test_internship_prompts_and_resume_layout(profile, monkeypatch):
+    from jobbot.llm import OllamaLLM
+    good = ('{"score": 75, "worth_applying": true, "reasons": ["r"], '
+            '"missing_requirements": [], "red_flags": []}')
+    sent = _fake_ollama(monkeypatch, [good, good])
+    OllamaLLM(profile, focus="internships").assess_fit(make_job(title="Data Intern"))
+    OllamaLLM(profile, focus="jobs").assess_fit(make_job())
+    assert "ONLY for internships" in sent[0]["messages"][1]["content"]
+    assert "ONLY for internships" not in sent[1]["messages"][1]["content"]
+    d = documents.build_resume_data(profile, sample_tailored(), education_first=True)
+    html = documents.resume_html(d)
+    assert html.index("Education") < html.index("Experience")
+    html = documents.resume_html(documents.build_resume_data(profile, sample_tailored()))
+    assert html.index("Experience") < html.index("Education")
+
+
+def test_web_preferences_round_trip_keeps_comments(web):
+    app, c, tmp = web
+    p = c.get("/api/preferences").get_json()
+    assert p["focus"] == "jobs" and "stripe" in p["greenhouse"]
+    p.update(focus="internships", keywords="software, data", internship_term="Summer 2027",
+             min_salary_usd="", greenhouse="stripe, figma")
+    r = c.post("/api/preferences", json=p, headers=H)
+    assert r.status_code == 200, r.get_json()
+    p2 = c.get("/api/preferences").get_json()
+    assert p2["focus"] == "internships" and p2["keywords"] == ["software", "data"]
+    assert p2["internship_term"] == "Summer 2027" and p2["greenhouse"] == ["stripe", "figma"]
+    assert p2["min_salary_usd"] == ""
+    cfg_text = (tmp / "config.yaml").read_text()
+    assert "# Company \"slugs\"" in cfg_text and "focus: internships" in cfg_text   # comments survive
+    assert "# What you want" in (tmp / "profile.yaml").read_text()
+    assert c.get("/api/summary").get_json()["focus"] == "internships"
+    bad = dict(p2, min_score="150")
+    assert "Minimum fit score" in c.post("/api/preferences", json=bad, headers=H).get_json()["error"]
+    none = dict(p2, greenhouse="", lever="", ashby="", remotive_enabled=False)
+    assert "at least one company" in c.post("/api/preferences", json=none, headers=H).get_json()["error"]
+
+
+def test_find_revives_filtered_jobs_after_focus_change(tmp_path, monkeypatch, capsys):
+    from types import SimpleNamespace
+    import jobbot.cli as cli
+    import jobbot.sources as sources
+    from jobbot.config import DEFAULTS
+    from jobbot.db import DB
+    db = DB(str(tmp_path / "j.db"))
+    intern = make_job(title="Software Intern", source_id="9")
+    db.add_new([intern]); db.update(intern.key, status="filtered", note="title contains excluded 'intern'")
+    monkeypatch.setattr(sources, "fetch_all", lambda cfg: [])
+    cfg = {**DEFAULTS, "search": {**DEFAULTS["search"], "keywords": ["software"],
+                                  "exclude_keywords": ["intern"], "focus": "internships"},
+           "matching": {"min_score": 70, "max_jobs_to_score": 0}}
+    cli.cmd_find(cfg, {}, db, SimpleNamespace())
+    assert db.get(intern.key)["status"] == "new"
+    assert "1 earlier postings now match" in capsys.readouterr().out
