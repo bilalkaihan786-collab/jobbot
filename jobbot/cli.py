@@ -25,8 +25,8 @@ log = logging.getLogger("jobbot")
 
 
 def _llm(cfg, profile):
-    from jobbot.llm import LLM
-    return LLM(profile, model=cfg["model"])
+    from jobbot.llm import make_llm
+    return make_llm(cfg, profile)
 
 
 # -------------------------------------------------------------------- find

@@ -3,7 +3,18 @@
 profile: profile.yaml        # your master profile (see profile.example.yaml)
 database: jobbot.db          # tracks every job seen and what happened to it
 output_dir: output           # tailored resumes / cover letters / screenshots go here
-model: claude-opus-5-5
+
+# Which AI writes the scores, resumes and form answers:
+#   claude = Claude via the Anthropic API (best results; needs ANTHROPIC_API_KEY, small cost)
+#   ollama = a free model running on your own computer (install https://ollama.com)
+#   auto   = claude if ANTHROPIC_API_KEY is set, otherwise ollama
+provider: auto
+model: claude-opus-5-5       # used when provider is claude
+ollama:
+  model: qwen2.5:7b          # run `ollama pull qwen2.5:7b` once first
+  host: http://localhost:11434
+  num_ctx: 16384             # context window; lower to 8192 if your PC runs out of memory
+  timeout_seconds: 900       # local models can be slow, especially without a GPU
 
 search:
   # A job passes if any keyword is in the title (or 2+ appear in the description).

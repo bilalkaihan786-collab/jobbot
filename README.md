@@ -9,12 +9,21 @@ find  ──►  filter  ──►  Claude scores fit  ──►  prepare: tailo
 
 ## Setup
 
-You need Python 3.10+ and an Anthropic API key (https://console.anthropic.com).
+You need Python 3.10+ and one of these to do the AI work:
+
+- **Claude** (best results): an Anthropic API key from https://console.anthropic.com. Costs a few
+  cents per job.
+- **Ollama** (free, runs on your own computer): install https://ollama.com, then run
+  `ollama pull qwen2.5:7b` once. Needs about 8 GB of RAM. It's slower than Claude, and its
+  resumes and answers are weaker, so check them more carefully.
+
+With the default `provider: auto`, jobbot uses Claude when `ANTHROPIC_API_KEY` is set and Ollama
+otherwise. Set `provider: claude` or `provider: ollama` in config.yaml to choose explicitly.
 
 ```bash
 pip install -r requirements.txt
 playwright install chromium
-export ANTHROPIC_API_KEY=sk-ant-...
+export ANTHROPIC_API_KEY=sk-ant-...   # skip this line if you're using Ollama
 cp config.example.yaml config.yaml
 cp profile.example.yaml profile.yaml
 ```

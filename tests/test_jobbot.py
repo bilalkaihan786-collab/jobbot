@@ -1,4 +1,4 @@
-"""Offline tests: no network, no API key. Claude is replaced with a stub."""
+"""Offline tests: no network, no API key. Claude and Ollama are replaced with stubs."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -194,3 +194,82 @@ def test_lever_style_form(browser, profile, tmp_path):
     assert not page.locator("input[value=Rust]").is_checked()
     assert v("textarea[name=comments]").startswith("Dear Hiring Team")   # cover letter as text
     assert rep.captcha                                                  # auto mode would stop here
+
+
+# ------------------------------------------------------------ Ollama backend
+
+class _Resp:
+    def __init__(self, data, status=200):
+        self._data, self.status_code, self.text = data, status, str(data)
+
+    def json(self):
+        return self._data
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            import requests
+            raise requests.HTTPError(self.text)
+
+
+def _fake_ollama(monkeypatch, replies, models=("qwen2.5:7b",)):
+    """Patch requests in jobbot.llm so OllamaLLM talks to a fake server."""
+    import jobbot.llm as llm_mod
+    sent = []
+    monkeypatch.setattr(llm_mod.requests, "get",
+                        lambda url, timeout=None: _Resp({"models": [{"name": m} for m in models]}))
+
+    def post(url, json=None, timeout=None):
+        sent.append(json)
+        return _Resp({"message": {"content": replies.pop(0)}})
+    monkeypatch.setattr(llm_mod.requests, "post", post)
+    return sent
+
+
+def test_ollama_scores_and_validates(profile, monkeypatch):
+    from jobbot.llm import OllamaLLM
+    good = ('{"score": 82, "worth_applying": true, "reasons": ["Python"], '
+            '"missing_requirements": [], "red_flags": []}')
+    sent = _fake_ollama(monkeypatch, ["not json at all", good])   # first reply is retried
+    a = OllamaLLM(profile).assess_fit(make_job())
+    assert a.score == 82 and a.worth_applying
+    assert len(sent) == 2
+    body = sent[0]
+    assert body["format"]["title"] == "FitAssessment" and body["stream"] is False
+    assert body["options"]["num_ctx"] == 16384
+    assert "eeo" not in body["messages"][0]["content"]
+
+
+def test_ollama_resume_gets_same_truthfulness_guard(profile, monkeypatch):
+    from jobbot.llm import OllamaLLM
+    reply = TailoredResume(headline="h", summary="s", skills=["Python", "Rust"],
+                           roles=[TailoredRole(experience_id="acme", bullets=["b"]),
+                                  TailoredRole(experience_id="google", bullets=["made up"])]
+                           ).model_dump_json()
+    _fake_ollama(monkeypatch, [reply])
+    out = OllamaLLM(profile).tailor_resume(make_job())
+    assert [r.experience_id for r in out.roles] == ["acme"] and out.skills == ["Python"]
+
+
+def test_ollama_missing_model_or_server_gives_clear_error(profile, monkeypatch):
+    import jobbot.llm as llm_mod
+    from jobbot.llm import OllamaLLM
+    _fake_ollama(monkeypatch, [], models=("llama3.1:8b",))
+    with pytest.raises(SystemExit, match="ollama pull qwen2.5:7b"):
+        OllamaLLM(profile)
+
+    def down(url, timeout=None):
+        raise llm_mod.requests.ConnectionError("refused")
+    monkeypatch.setattr(llm_mod.requests, "get", down)
+    with pytest.raises(SystemExit, match="Can't reach Ollama"):
+        OllamaLLM(profile)
+
+
+def test_make_llm_auto_picks_provider(profile, monkeypatch):
+    from jobbot.config import DEFAULTS
+    from jobbot.llm import LLM as Claude, OllamaLLM, make_llm
+    _fake_ollama(monkeypatch, [])
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    assert isinstance(make_llm(DEFAULTS, profile), OllamaLLM)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
+    assert isinstance(make_llm(DEFAULTS, profile), Claude)
+    assert isinstance(make_llm({**DEFAULTS, "provider": "ollama"}, profile), OllamaLLM)

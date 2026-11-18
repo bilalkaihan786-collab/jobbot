@@ -1,19 +1,26 @@
-"""All Claude calls: fit scoring, resume tailoring, cover letters, form answers.
+"""All AI calls: fit scoring, resume tailoring, cover letters, form answers.
+
+Two backends share the same prompts and safety checks:
+  * LLM (Claude, via the Anthropic API) - needs ANTHROPIC_API_KEY.
+  * OllamaLLM (a free model running on your own computer via https://ollama.com).
+make_llm() picks one from config.yaml's `provider` setting.
 
 Truthfulness is enforced two ways:
   1. Prompts forbid inventing anything not in the profile.
   2. Employers, titles, dates, education and contact details are copied from the
-     profile by code; Claude only chooses/rephrases bullets and writes summaries.
+     profile by code; the model only chooses/rephrases bullets and writes summaries.
 """
 from __future__ import annotations
 
 import json
 import logging
+import os
 from typing import TypeVar
 
 import anthropic
+import requests
 import yaml
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from jobbot.models import (CoverLetter, FitAssessment, FormAnswers, FormField, Job,
                            TailoredResume)
@@ -41,43 +48,18 @@ class RefusedError(RuntimeError):
     pass
 
 
-class LLM:
-    def __init__(self, profile: dict, model: str = "claude-opus-5-5"):
-        self.client = anthropic.Anthropic()
-        self.model = model
+class BaseLLM:
+    """Prompts and output checks shared by every backend. Subclasses implement _parse()."""
+
+    def __init__(self, profile: dict):
         self.profile = profile
         public = {k: v for k, v in profile.items() if k not in ("eeo",)}
-        self.system = [{
-            "type": "text",
-            "text": SYSTEM.format(profile=yaml.safe_dump(public, sort_keys=False, allow_unicode=True)),
-            # Profile is identical on every call -> cache it.
-            "cache_control": {"type": "ephemeral"},
-        }]
+        self.system_text = SYSTEM.format(
+            profile=yaml.safe_dump(public, sort_keys=False, allow_unicode=True))
 
-    # -------------------------------------------------------------- core
     def _parse(self, prompt: str, schema: type[T], effort: str = "medium",
                max_tokens: int = 16000) -> T:
-        kwargs = dict(
-            model=self.model,
-            max_tokens=max_tokens,
-            system=self.system,
-            messages=[{"role": "user", "content": prompt}],
-            output_format=schema,
-            output_config={"effort": effort},
-        )
-        if self.model in ("claude-opus-5-5", "claude-opus-5", "claude-fable-5-2",
-                          "claude-fable-5-1", "claude-sonnet-5-5"):
-            # Server-side fallback if a safety classifier declines (rare for this use).
-            kwargs["betas"] = ["server-side-fallback-2026-07-01"]
-            kwargs["fallbacks"] = "default"
-            resp = self.client.beta.messages.parse(**kwargs)
-        else:
-            resp = self.client.messages.parse(**kwargs)
-        if resp.stop_reason == "refusal":
-            raise RefusedError(getattr(resp.stop_details, "explanation", None) or "refused")
-        if resp.stop_reason == "max_tokens" or resp.parsed_output is None:
-            raise RuntimeError(f"Claude returned no parseable output (stop={resp.stop_reason})")
-        return resp.parsed_output
+        raise NotImplementedError
 
     @staticmethod
     def _job_block(job: Job) -> str:
@@ -183,3 +165,129 @@ def _flatten_skills(skills) -> list[str]:
             out.extend(_flatten_skills(s) if isinstance(s, (list, dict)) else [str(s)])
         return out
     return [s.strip() for s in str(skills).split(",") if s.strip()]
+
+
+# ------------------------------------------------------------------ Claude
+
+class LLM(BaseLLM):
+    """Claude via the Anthropic API."""
+
+    def __init__(self, profile: dict, model: str = "claude-opus-5-5"):
+        super().__init__(profile)
+        self.client = anthropic.Anthropic()
+        self.model = model
+        self.system = [{
+            "type": "text",
+            "text": self.system_text,
+            # Profile is identical on every call -> cache it.
+            "cache_control": {"type": "ephemeral"},
+        }]
+
+    def _parse(self, prompt: str, schema: type[T], effort: str = "medium",
+               max_tokens: int = 16000) -> T:
+        kwargs = dict(
+            model=self.model,
+            max_tokens=max_tokens,
+            system=self.system,
+            messages=[{"role": "user", "content": prompt}],
+            output_format=schema,
+            output_config={"effort": effort},
+        )
+        if self.model in ("claude-opus-5-5", "claude-opus-5", "claude-fable-5-2",
+                          "claude-fable-5-1", "claude-sonnet-5-5"):
+            # Server-side fallback if a safety classifier declines (rare for this use).
+            kwargs["betas"] = ["server-side-fallback-2026-07-01"]
+            kwargs["fallbacks"] = "default"
+            resp = self.client.beta.messages.parse(**kwargs)
+        else:
+            resp = self.client.messages.parse(**kwargs)
+        if resp.stop_reason == "refusal":
+            raise RefusedError(getattr(resp.stop_details, "explanation", None) or "refused")
+        if resp.stop_reason == "max_tokens" or resp.parsed_output is None:
+            raise RuntimeError(f"Claude returned no parseable output (stop={resp.stop_reason})")
+        return resp.parsed_output
+
+
+# ------------------------------------------------------------------ Ollama (local, free)
+
+class OllamaLLM(BaseLLM):
+    """A model running locally in Ollama (https://ollama.com). No API key, no cost.
+
+    Uses Ollama's structured outputs (`format` = JSON schema) so replies come back
+    in the same shapes as Claude's, then validates them with the same pydantic models.
+    """
+
+    def __init__(self, profile: dict, model: str = "qwen2.5:7b",
+                 host: str = "http://localhost:11434", num_ctx: int = 16384,
+                 timeout: int = 900):
+        super().__init__(profile)
+        self.model = model
+        self.host = host.rstrip("/")
+        self.num_ctx = num_ctx
+        self.timeout = timeout
+        self._check_ready()
+
+    def _check_ready(self):
+        try:
+            r = requests.get(f"{self.host}/api/tags", timeout=10)
+            r.raise_for_status()
+        except requests.RequestException:
+            raise SystemExit(
+                f"Can't reach Ollama at {self.host}.\n"
+                "  1. Install it from https://ollama.com and open the Ollama app.\n"
+                f"  2. Download the model:  ollama pull {self.model}\n"
+                "  Or set provider: claude in config.yaml and set ANTHROPIC_API_KEY.")
+        names = {m.get("name", "") for m in r.json().get("models", [])}
+        wanted = self.model if ":" in self.model else f"{self.model}:latest"
+        if wanted not in names:
+            raise SystemExit(f"Ollama doesn't have the model '{self.model}' yet. "
+                             f"Download it with:  ollama pull {self.model}")
+
+    def _parse(self, prompt: str, schema: type[T], effort: str = "medium",
+               max_tokens: int = 16000) -> T:
+        json_schema = schema.model_json_schema()
+        content = (f"{prompt}\n\nReply with only a JSON object matching this schema:\n"
+                   f"{json.dumps(json_schema)}")
+        body = {
+            "model": self.model,
+            "messages": [{"role": "system", "content": self.system_text},
+                         {"role": "user", "content": content}],
+            "format": json_schema,
+            "stream": False,
+            "options": {"temperature": 0.3, "num_ctx": self.num_ctx,
+                        "num_predict": min(max_tokens, 8000)},
+        }
+        last_err: Exception | None = None
+        for _ in range(2):  # small local models occasionally emit invalid JSON; retry once
+            try:
+                r = requests.post(f"{self.host}/api/chat", json=body, timeout=self.timeout)
+            except requests.RequestException as e:
+                raise RuntimeError(f"Ollama request failed: {e}") from e
+            if r.status_code != 200:
+                raise RuntimeError(f"Ollama error {r.status_code}: {r.text[:300]}")
+            text = (r.json().get("message") or {}).get("content", "")
+            try:
+                return schema.model_validate_json(text)
+            except ValidationError as e:
+                last_err = e
+                log.debug("Ollama returned invalid %s, retrying: %s", schema.__name__, e)
+        raise RuntimeError(f"Ollama returned no valid {schema.__name__}: {last_err}")
+
+
+# ------------------------------------------------------------------ factory
+
+def make_llm(cfg: dict, profile: dict) -> BaseLLM:
+    """provider: claude | ollama | auto (Claude if ANTHROPIC_API_KEY is set, else Ollama)."""
+    provider = (cfg.get("provider") or "auto").lower()
+    if provider == "auto":
+        provider = "claude" if os.environ.get("ANTHROPIC_API_KEY") else "ollama"
+        log.info("Using %s (provider: auto)", provider)
+    if provider == "claude":
+        return LLM(profile, model=cfg["model"])
+    if provider == "ollama":
+        o = cfg.get("ollama") or {}
+        return OllamaLLM(profile, model=o.get("model", "qwen2.5:7b"),
+                         host=o.get("host", "http://localhost:11434"),
+                         num_ctx=int(o.get("num_ctx", 16384)),
+                         timeout=int(o.get("timeout_seconds", 900)))
+    raise SystemExit(f"Unknown provider '{provider}' in config.yaml (use claude, ollama or auto)")
