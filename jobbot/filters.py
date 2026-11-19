@@ -46,10 +46,38 @@ def is_internship(job: Job) -> bool:
 
 def relevance(job: Job, search: dict) -> int:
     """Cheap keyword score used to decide which postings the AI looks at first."""
+    # Capped so a posting that repeats many keywords (e.g. "French tutor / teacher / bilingual
+    # student") doesn't outrank everything else.
     title = job.title.lower()
     text = job.description.lower()
     kws = search.get("keywords") or []
-    return 3 * sum(_has(title, k) for k in kws) + sum(_has(text, k) for k in kws)
+    return 3 * min(2, sum(_has(title, k) for k in kws)) + min(3, sum(_has(text, k) for k in kws))
+
+
+def pick_diverse(jobs: list[Job], limit: int, search: dict, per_employer: int = 2) -> list[Job]:
+    """Choose up to `limit` jobs to score, spread across the searches that found them and
+    capped per employer, so one kind of job (or one agency posting dozens of ads) can't use up
+    the whole run. Within each search the most relevant come first."""
+    groups: dict[str, list[Job]] = {}
+    for j in sorted(jobs, key=lambda j: -relevance(j, search)):
+        groups.setdefault(j.query or j.source, []).append(j)
+    queues = sorted(groups.values(), key=lambda g: -relevance(g[0], search))
+    picked: list[Job] = []
+    per_company: dict[str, int] = {}
+    while queues and len(picked) < limit:
+        for q in list(queues):
+            while q:
+                j = q.pop(0)
+                company = j.company.lower()
+                if per_company.get(company, 0) < per_employer:
+                    per_company[company] = per_company.get(company, 0) + 1
+                    picked.append(j)
+                    break
+            if not q:
+                queues.remove(q)
+            if len(picked) >= limit:
+                break
+    return picked
 
 
 def passes(job: Job, search: dict) -> tuple[bool, str]:

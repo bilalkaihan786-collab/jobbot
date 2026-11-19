@@ -25,9 +25,12 @@ search:
   focus: students
   # A job passes if any keyword is in its title (or appears in the description).
   # Tuned for Kinesiology + French: research, clinical/medical, French teaching, bilingual government.
-  keywords: [research, kinesiology, kinesiologist, rehabilitation, physiotherapy, exercise, health,
-             clinic, clinical, hospital, medical, patient, lab, laboratory, french, bilingual,
-             francophone, tutor, teacher, teaching, instructor, educator, government, student]
+  keywords: [research, lab, laboratory, clinical, clinic, hospital, medical, patient, health,
+             wellness, kinesiology, kinesiologist, rehabilitation, physiotherapy, occupational,
+             chiropractic, therapy, exercise, fitness, recreation, camp, counsellor, coach, sports,
+             lifeguard, youth, community, program, french, bilingual, francophone, tutor, teacher,
+             teaching, instructor, educator, government, student, data, administrative, office,
+             coordinator, assistant]
   # Titles needing a finished degree or licence, plus unrelated fields.
   exclude_keywords: [senior, manager, director, principal, chief, physician, surgeon, pharmacist,
                      dentist, registered nurse, nurse practitioner, psychologist, engineer,
@@ -48,9 +51,14 @@ sources:
     where: ""                # city or province, e.g. Ottawa; empty = whole country
     app_id: ""
     app_key: ""
-    searches: [research assistant, kinesiology, rehabilitation assistant, physiotherapy assistant,
-               clinical research, hospital student, summer student health, french tutor,
-               french teacher, bilingual student, bilingual government]
+    # A broad mix: health & research, rehab, recreation & sport, French/bilingual, government,
+    # and office/data work. Each runs separately and jobbot mixes the results.
+    searches: [research assistant, research student, lab assistant, clinical research, kinesiology,
+               physiotherapy assistant, rehabilitation assistant, occupational therapy assistant,
+               chiropractic assistant, hospital, patient services, medical office assistant,
+               health promotion, fitness instructor, recreation, camp counsellor, sports coach,
+               youth program, community program, french, bilingual, bilingual customer service,
+               government student, summer student, data entry, administrative assistant]
   # Company "slugs" = the part of their careers URL:
   #   job-boards.greenhouse.io/<slug>    jobs.lever.co/<slug>    jobs.ashbyhq.com/<slug>
   # For specific employers that use these systems (jobbot can fill their forms).
@@ -63,7 +71,7 @@ sources:
 
 matching:
   min_score: 70              # Claude's 0-100 fit score needed to prepare an application
-  max_jobs_to_score: 15      # per `find` run; local AI takes ~0.5-3 min per job
+  max_jobs_to_score: 20      # per `find` run; local AI takes ~20 s per job
 
 documents:
   cover_letter: when_accepted   # when_accepted | always | never

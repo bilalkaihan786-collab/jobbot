@@ -238,7 +238,7 @@ def _job_row(db: DB, r, out_root: Path) -> dict:
         "title": j.title, "company": j.company, "location": j.location,
         "remote": j.remote, "url": j.url, "apply_url": j.apply_url, "source": j.source,
         "internship": is_internship(j), "posted": j.posted_at, "first_seen": r["first_seen"],
-        "salary": j.salary,
+        "salary": j.salary, "query": j.query,
         "can_auto_apply": j.can_auto_apply, "note": r["note"], "updated": r["updated"],
         "reasons": a.get("reasons", []),
         "concerns": a.get("missing_requirements", []) + a.get("red_flags", []),
@@ -282,6 +282,17 @@ def _section(parent, key):
     return parent[key]
 
 
+def suggested_search() -> dict:
+    """The broad student search list from config.example.yaml, for the Preferences button."""
+    ex = Path(__file__).resolve().parent.parent / "config.example.yaml"
+    try:
+        data = yaml.safe_load(ex.read_text()) or {}
+    except (OSError, yaml.YAMLError):
+        return {}
+    return {"keywords": _str_list((data.get("search") or {}).get("keywords")),
+            "adzuna_searches": _str_list(((data.get("sources") or {}).get("adzuna") or {}).get("searches"))}
+
+
 def read_preferences(cfg: dict, profile: dict) -> dict:
     s, m, src = cfg["search"], cfg["matching"], cfg["sources"]
     prefs = profile.get("preferences") or {}
@@ -314,6 +325,7 @@ def read_preferences(cfg: dict, profile: dict) -> dict:
         "adzuna_app_id": ad.get("app_id") or "",
         "adzuna_app_key": ad.get("app_key") or "",
         "adzuna_searches": _str_list(ad.get("searches")),
+        "suggested": suggested_search(),
     }
 
 

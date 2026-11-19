@@ -29,7 +29,7 @@ def _stopped(args) -> bool:
 from jobbot import documents
 from jobbot.config import load_config, load_profile
 from jobbot.db import DB
-from jobbot.filters import passes, relevance, student_focus
+from jobbot.filters import passes, pick_diverse, student_focus
 
 log = logging.getLogger("jobbot")
 
@@ -82,13 +82,14 @@ def cmd_find(cfg, profile, db: DB, args):
 
     limit = cfg["matching"]["max_jobs_to_score"]
     if len(candidates) > limit:
-        print(f"Scoring the {limit} most relevant (Jobs to score per run); the rest stay 'new'.")
+        print(f"Scoring {limit} (Jobs to score per run), mixed across your searches; the rest stay 'new'.")
     min_score = cfg["matching"]["min_score"]
     # Also score jobs left 'new' from earlier runs.
     backlog = [db.job(r) for r in db.by_status("new", order="first_seen")
                if r["key"] not in {c.key for c in candidates}]
-    # Most relevant first, so good matches appear early and Stop loses the least.
-    todo = sorted(candidates + backlog, key=lambda j: -relevance(j, cfg["search"]))[:limit]
+    # A mix across your searches (best of each first), max 2 per employer, so one kind of job
+    # can't take the whole run.
+    todo = pick_diverse(candidates + backlog, limit, cfg["search"])
     if not todo:
         print(f"\nNothing new to score. Good matches waiting: {len(db.by_status('scored'))}")
         return

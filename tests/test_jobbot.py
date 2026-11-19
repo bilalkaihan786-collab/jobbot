@@ -572,7 +572,7 @@ def test_find_shows_progress_and_stops(tmp_path, monkeypatch, capsys, profile):
     from jobbot.db import DB
     from jobbot.models import FitAssessment
     db = DB(str(tmp_path / "j.db"))
-    jobs = [make_job(title=f"Backend Engineer {i}", source_id=str(i)) for i in range(3)]
+    jobs = [make_job(title=f"Backend Engineer {i}", source_id=str(i), company=f"Org {i}") for i in range(3)]
     monkeypatch.setattr(sources, "fetch_all", lambda c: jobs)
     calls = []
 
@@ -742,3 +742,44 @@ def test_allow_any_host_opt_in(web, monkeypatch):
     monkeypatch.setenv("JOBBOT_ALLOW_ANY_HOST", "1")
     assert c.get("/api/summary", headers={"Host": "preview.example"}).status_code == 200
     assert c.post("/api/mark", json={}, headers={"Host": "preview.example"}).status_code == 403  # header still needed
+
+
+# ------------------------------------------------------------ diverse results
+
+def test_pick_diverse_mixes_searches_and_caps_employers():
+    from jobbot.filters import pick_diverse
+    s = {"keywords": ["french", "tutor", "teacher", "teaching", "bilingual", "student", "research",
+                      "kinesiology", "recreation"]}
+    tutoring = [make_job(title="French Tutor / Teacher, Bilingual Student Teaching", company="TutorCo",
+                         source_id=f"t{i}", description="french tutor teacher teaching bilingual")
+                for i in range(10)]
+    for j in tutoring:
+        j.query = "adzuna/french tutor"
+    others = []
+    for i, (q, t, c) in enumerate([("adzuna/research assistant", "Research Assistant", "UHN"),
+                                   ("adzuna/kinesiology", "Kinesiology Student", "Clinic A"),
+                                   ("adzuna/recreation", "Recreation Leader", "City")]):
+        j = make_job(title=t, company=c, source_id=f"o{i}", description="")
+        j.query = q
+        others.append(j)
+    picked = pick_diverse(tutoring + others, 5, s)
+    queries = [j.query for j in picked]
+    assert len(picked) == 5
+    assert {"adzuna/research assistant", "adzuna/kinesiology", "adzuna/recreation"} <= set(queries)
+    assert sum(j.company == "TutorCo" for j in picked) == 2                # per-employer cap
+
+
+def test_jobs_remember_their_search(monkeypatch):
+    import jobbot.sources as src
+    from jobbot.config import DEFAULTS
+    monkeypatch.setattr(src, "_get_json", lambda url, params=None: ADZUNA_SAMPLE)
+    ad = {"enabled": True, "country": "ca", "app_id": "a", "app_key": "b", "searches": ["kinesiology"]}
+    jobs = src.fetch_all({**DEFAULTS, "sources": {**DEFAULTS["sources"], "adzuna": ad}})
+    assert jobs and all(j.query == "adzuna/kinesiology" for j in jobs)
+
+
+def test_preferences_offer_broad_searches(web):
+    app, c, tmp = web
+    sug = c.get("/api/preferences").get_json()["suggested"]
+    assert len(sug["adzuna_searches"]) >= 20 and "recreation" in sug["adzuna_searches"]
+    assert "fitness" in sug["keywords"]

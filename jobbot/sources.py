@@ -234,6 +234,8 @@ def fetch_all(cfg: dict) -> list[Job]:
         name, fn = task
         try:
             got = list(fn())
+            for j in got:
+                j.query = j.query or name
             log.info("%-35s %4d jobs", name, len(got))
             return got
         except requests.HTTPError as e:

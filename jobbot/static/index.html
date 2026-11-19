@@ -278,7 +278,9 @@ textarea { width: 100%; min-height: 460px; font: 13px/1.5 ui-monospace, SFMono-R
         <div class="hint">Free: register at <a href="https://developer.adzuna.com" target="_blank" rel="noopener">developer.adzuna.com</a>, then copy both values here. Saved only in config.yaml on this computer.</div></div>
       <div class="field full"><label for="p-az-searches">Searches</label>
         <textarea class="small" id="p-az-searches" placeholder="research assistant, kinesiology, physiotherapy assistant, french tutor, bilingual government"></textarea>
-        <div class="hint">Each one is a separate search. Keep them short (1–3 words); every word must appear in the posting.</div></div>
+        <div class="hint">Each one is a separate search, and jobbot mixes the results so one kind of job can't crowd out the rest. Keep them short (1–3 words); every word must appear in the posting.</div>
+        <div class="row" style="margin-top:8px"><button class="ghost" type="button" onclick="useSuggested()">Use broad student searches</button>
+          <span class="via">Fills Searches and Keywords with a wide mix: research, rehab, hospitals, recreation, sport, French/bilingual, government, office and data. Then click Save.</span></div></div>
     </div>
   </div>
 
@@ -410,6 +412,7 @@ function jobCard(j) {
   if (j.resume) links.push(`<a href="/files/${encodeURI(j.resume)}" target="_blank">Resume (PDF)</a>`);
   if (j.cover_letter) links.push(`<a href="/files/${encodeURI(j.cover_letter)}" target="_blank">Cover letter</a>`);
   if ((j.status === "needs_manual" || !j.can_auto_apply) && j.apply_url !== j.url) links.push(`<a href="${esc(j.apply_url)}" target="_blank" rel="noopener">Application form ↗</a>`);
+  if (j.query) links.push(`<span class="via">Found by: ${esc(j.query.replace(/^adzuna\//, ""))}</span>`);
   if (j.source === "adzuna") links.push(`<span class="via">Jobs by <a href="${ADZUNA_SITE[(summary.adzuna || {}).country] || "https://www.adzuna.com"}" target="_blank" rel="noopener">Adzuna</a></span>`);
   const k = esc(JSON.stringify(j.key));
   const acts = [];
@@ -580,6 +583,7 @@ async function loadPrefs() {
   $("#p-targets").value = csv(p.targets);
   $("#p-adzuna").checked = p.adzuna_enabled; $("#p-az-country").value = p.adzuna_country; $("#p-az-where").value = p.adzuna_where;
   $("#p-az-id").value = p.adzuna_app_id; $("#p-az-key").value = p.adzuna_app_key; $("#p-az-searches").value = csv(p.adzuna_searches);
+  suggested = p.suggested || {};
   focusChanged();
 }
 function focusChanged() {
@@ -598,6 +602,14 @@ document.querySelectorAll("input[name=focus]").forEach(x => x.addEventListener("
     s.value = f === "internships" ? "internship / co-op student" : "student (summer, part-time, co-op)";
   }
 }));
+let suggested = {};
+function useSuggested() {
+  if (!suggested.adzuna_searches || !suggested.adzuna_searches.length) return;
+  $("#p-az-searches").value = suggested.adzuna_searches.join(", ");
+  if (suggested.keywords && suggested.keywords.length) $("#p-keywords").value = suggested.keywords.join(", ");
+  $("#p-adzuna").checked = true;
+  $("#prefs-msg").innerHTML = `<span class="saved">Filled in ${suggested.adzuna_searches.length} searches. Click <b>Save preferences</b> to keep them.</span>`;
+}
 async function savePrefs() {
   const body = {
     focus: (document.querySelector("input[name=focus]:checked") || {}).value,

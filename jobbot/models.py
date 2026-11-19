@@ -22,6 +22,7 @@ class Job:
     remote: bool = False
     posted_at: str = ""
     salary: str = ""
+    query: str = ""        # which search found it (e.g. "adzuna/french tutor"); used to mix results
 
     @property
     def key(self) -> str:
