@@ -734,3 +734,11 @@ def test_missing_pdf_browser_explains_fix(monkeypatch, tmp_path):
     monkeypatch.setattr(pw, "sync_playwright", lambda: FakePW())
     with pytest.raises(RuntimeError, match="python -m playwright install chromium"):
         documents.html_to_pdf("<p>x</p>", tmp_path / "x.pdf")
+
+
+def test_allow_any_host_opt_in(web, monkeypatch):
+    app, c, tmp = web
+    assert c.get("/api/summary", headers={"Host": "preview.example"}).status_code == 403
+    monkeypatch.setenv("JOBBOT_ALLOW_ANY_HOST", "1")
+    assert c.get("/api/summary", headers={"Host": "preview.example"}).status_code == 200
+    assert c.post("/api/mark", json={}, headers={"Host": "preview.example"}).status_code == 403  # header still needed

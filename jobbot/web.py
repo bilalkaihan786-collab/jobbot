@@ -447,7 +447,9 @@ def create_app(config_path: str | Path) -> Flask:
     @app.before_request
     def guard():
         host = (request.host or "").split(":")[0]
-        if host not in ("localhost", "127.0.0.1", "[::1]", "::1"):
+        # JOBBOT_ALLOW_ANY_HOST=1 is for viewing through a preview/proxy that renames the host.
+        if host not in ("localhost", "127.0.0.1", "[::1]", "::1") \
+                and os.environ.get("JOBBOT_ALLOW_ANY_HOST") != "1":
             abort(403)  # blocks DNS-rebinding tricks
         if request.method == "POST" and request.headers.get("X-Jobbot") != "1":
             abort(403)  # a custom header can't be sent cross-site without CORS approval
