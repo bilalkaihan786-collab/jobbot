@@ -230,16 +230,12 @@ def fetch_all(cfg: dict) -> list[Job]:
             log.warning("Adzuna is on but has no app_id/app_key. Get a free key at "
                         "https://developer.adzuna.com and add it on the Preferences tab.")
 
-    jobs: list[Job] = []
-    seen: set[str] = set()
-    for name, fn in tasks:
+    def run(task):
+        name, fn = task
         try:
             got = list(fn())
             log.info("%-35s %4d jobs", name, len(got))
-            for j in got:           # several searches can return the same posting
-                if j.key not in seen:
-                    seen.add(j.key)
-                    jobs.append(j)
+            return got
         except requests.HTTPError as e:
             code = e.response.status_code if e.response is not None else "?"
             hint = (" (check your Adzuna app_id/app_key)" if name.startswith("adzuna") and code in (401, 403)
@@ -247,4 +243,18 @@ def fetch_all(cfg: dict) -> list[Job]:
             log.warning("%s: HTTP %s%s", name, code, hint)
         except requests.RequestException as e:
             log.warning("%s: %s", name, e)
+        return []
+
+    # Searches are independent web requests, so run a few at once instead of one by one.
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=min(6, max(1, len(tasks)))) as pool:
+        results = list(pool.map(run, tasks))   # keeps the configured order
+
+    jobs: list[Job] = []
+    seen: set[str] = set()
+    for got in results:
+        for j in got:               # several searches can return the same posting
+            if j.key not in seen:
+                seen.add(j.key)
+                jobs.append(j)
     return jobs

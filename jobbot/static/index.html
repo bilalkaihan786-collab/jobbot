@@ -123,6 +123,7 @@ textarea { width: 100%; min-height: 460px; font: 13px/1.5 ui-monospace, SFMono-R
 .elsewhere h3 { margin: 0 0 4px; font-size: 15px; }
 .elsewhere .links { margin-top: 10px; }
 .via { font-size: 12.5px; color: var(--muted); }
+.acts .pick { justify-content: center; font-size: 13px; padding: 4px 0; }
 .savebar { position: sticky; bottom: 0; background: var(--bg); padding: 12px 0; display: flex; gap: 12px; align-items: center;
            border-top: 1px solid var(--line); }
 @media (max-width: 720px) {
@@ -154,9 +155,10 @@ textarea { width: 100%; min-height: 460px; font: 13px/1.5 ui-monospace, SFMono-R
     <div class="panel step"><h3><span class="n">1</span>Find jobs</h3>
       <p>Search Adzuna and your employers for new openings, filter them, and score how well you fit.</p>
       <button class="primary" data-run="find">Find jobs</button></div>
-    <div class="panel step"><h3><span class="n">2</span>Prepare resumes</h3>
-      <p>Write a tailored resume (and cover letter where needed) for each good match.</p>
-      <button class="primary" data-run="prepare">Prepare resumes</button></div>
+    <div class="panel step"><h3><span class="n">2</span>Choose resumes</h3>
+      <p>Pick the matches you want below. jobbot only writes a resume (and cover letter where needed) for jobs you choose.</p>
+      <div class="row"><button class="primary" id="make-selected" disabled onclick="makeSelected()">Make resumes for selected</button>
+        <a href="#" onclick="selectAllGood();return false">Select all good matches</a></div></div>
     <div class="panel step"><h3><span class="n">3</span>Apply</h3>
       <p>Open each application in a browser window and fill it in for you to check.</p>
       <div class="row"><button class="primary" data-run="apply">Apply</button>
@@ -167,6 +169,7 @@ textarea { width: 100%; min-height: 460px; font: 13px/1.5 ui-monospace, SFMono-R
   </div>
 
   <div id="running"></div>
+  <div id="done"></div>
   <div id="review"></div>
   <details class="logbox" id="logbox"><summary id="logsum">Activity log</summary><pre class="log" id="log">Nothing has run yet.</pre></details>
 
@@ -330,6 +333,7 @@ const post = (url, body) => fetch(url, {method: "POST", headers: {"Content-Type"
   .catch(() => ({ok: false, data: {error: "Can't reach jobbot. Is the PowerShell window running `python -m jobbot web` still open?"}}));
 const LABELS = {scored: "Good matches", ready: "Ready to apply", needs_manual: "Apply yourself", applied: "Applied",
                 rejected: "Not a fit", failed: "Problems", skipped: "Skipped", new: "Not scored yet", all: "All"};
+let selected = new Set(), lastRun = null;
 let filter = "scored", summary = null, logSince = 0, running = false, settingsWhich = "profile", ticks = 0, firstLoad = true;
 
 function show(v) {
@@ -396,6 +400,7 @@ function renderJobs() {
     $("#jobs").innerHTML = `<div class="panel empty">${hint}</div>`; return;
   }
   $("#jobs").innerHTML = jobs.map(jobCard).join("");
+  updateSelected();
 }
 
 function jobCard(j) {
@@ -408,6 +413,11 @@ function jobCard(j) {
   if (j.source === "adzuna") links.push(`<span class="via">Jobs by <a href="${ADZUNA_SITE[(summary.adzuna || {}).country] || "https://www.adzuna.com"}" target="_blank" rel="noopener">Adzuna</a></span>`);
   const k = esc(JSON.stringify(j.key));
   const acts = [];
+  if (j.status === "failed" && (j.note || "").startsWith("prepare")) acts.push(`<button class="primary" onclick='start("prepare", {keys: [${k}]})'>Try again</button>`);
+  if (j.status === "scored") {
+    acts.push(`<button class="primary" onclick='start("prepare", {keys: [${k}]})'>Make resume</button>`);
+    acts.push(`<label class="check pick"><input type="checkbox" ${selected.has(j.key) ? "checked" : ""} onchange='toggleSel(${k}, this.checked)'> Select</label>`);
+  }
   if (j.status === "ready" && j.can_auto_apply) acts.push(`<button class="primary" onclick='applyOne(${k})'>Apply now</button>`);
   if (j.status !== "applied") acts.push(`<button class="ghost" onclick='mark(${k}, "applied")'>Mark applied</button>`);
   if (!["skipped", "applied"].includes(j.status)) acts.push(`<button class="ghost" onclick='mark(${k}, "skipped")'>Skip</button>`);
@@ -422,10 +432,30 @@ function jobCard(j) {
 
 function setFilter(s) { filter = s; renderJobs(); }
 
+// ---- choose which jobs get resumes
+function toggleSel(key, on) { on ? selected.add(key) : selected.delete(key); updateSelected(); }
+function updateSelected() {
+  if (summary) {   // forget jobs that are no longer waiting for a resume
+    const waiting = new Set(summary.jobs.filter(j => j.status === "scored").map(j => j.key));
+    for (const k of [...selected]) if (!waiting.has(k)) selected.delete(k);
+  }
+  const b = $("#make-selected"), n = selected.size;
+  b.textContent = n ? `Make resumes for ${n} selected` : "Make resumes for selected";
+  b.disabled = running || !n;
+}
+function selectAllGood() {
+  if (!summary) return;
+  summary.jobs.filter(j => j.status === "scored").forEach(j => selected.add(j.key));
+  filter = "scored"; renderJobs(); updateSelected();
+}
+function makeSelected() { if (selected.size) start("prepare", {keys: [...selected]}); }
+
 async function start(action, body) {
   const r = await post("/api/run/" + action, body);
   if (!r.ok) { alert(r.data.error || "Couldn't start."); return; }
-  logSince = 0; $("#log").textContent = ""; $("#logbox").open = true; poll();
+  logSince = 0; $("#log").textContent = ""; $("#logbox").open = true; $("#done").innerHTML = "";
+  if (action === "prepare") selected.clear();
+  lastRun = action; poll();
 }
 document.querySelectorAll("[data-run]").forEach(b => b.onclick = () => start(b.dataset.run, b.dataset.run === "apply" ? {mode: $("#mode").value} : {}));
 $("#mode").onchange = e => { e.target.dataset.touched = 1;
@@ -442,6 +472,7 @@ async function poll() {
   }
   const was = running; running = s.running;
   document.querySelectorAll("[data-run], .acts .primary").forEach(b => b.disabled = running);
+  updateSelected();
   const mins = t => t >= 60 ? `${Math.floor(t / 60)} min ${t % 60}s` : `${t}s`;
   $("#logsum").textContent = running ? `Running: ${s.name}… (${mins(s.elapsed)})` : s.name ? `Activity log (last run: ${s.name}${s.error ? ", failed" : ""}, took ${mins(s.elapsed)})` : "Activity log";
   const last = [...$("#log").textContent.trim().split("\n")].pop() || "";
@@ -453,8 +484,30 @@ async function poll() {
       <div class="row"><button class="primary" onclick="answer('applied')">I submitted it</button>
       <button class="ghost" onclick="answer('later')">Do it later</button>
       <button class="ghost" onclick="answer('skipped')">Skip this job</button></div></div>` : "";
-  if (running) { setTimeout(poll, 1000); if (++ticks % 5 === 0) refresh(); }
-  else if (was) refresh();
+  // Refresh the job list as soon as a job is scored or a resume is written.
+  const progressed = s.lines.some(l => l.includes("/100") || l.includes("→"));
+  if (running) { setTimeout(poll, 1000); if (progressed || ++ticks % 10 === 0) refresh(); }
+  else if (was) { await refresh(); finished(s); }
+}
+
+function finished(s) {
+  const text = $("#log").textContent, c = summary.counts || {};
+  const scored = (text.match(/\/100/g) || []).length, good = (text.match(/good match:/g) || []).length;
+  let msg = "";
+  if (s.name === "find" && !s.error) {
+    filter = c.scored ? "scored" : summary.jobs.length ? "all" : filter;
+    msg = scored
+      ? `Search finished: scored ${scored} job${scored === 1 ? "" : "s"}, ${good} good match${good === 1 ? "" : "es"}. ${c.scored ? "Click <b>Make resume</b> on the ones you want, or select several and use <b>Make resumes for selected</b>." : ""}`
+      : `Search finished. No new jobs to score this time. Open the <b>Activity log</b> to see what happened.`;
+  } else if (s.name === "prepare" && !s.error) {
+    filter = c.needs_manual ? "needs_manual" : c.ready ? "ready" : filter;
+    msg = "Resumes are ready. Open each one from its job card, check it, then apply.";
+  }
+  if (!msg) return;
+  renderJobs();
+  $("#done").innerHTML = `<div class="notice" style="background:var(--good-bg);color:var(--good);display:flex;justify-content:space-between;gap:12px">
+    <span>${msg}</span><a href="#" onclick="$('#done').innerHTML='';return false">Dismiss</a></div>`;
+  $("#chips").scrollIntoView({behavior: "smooth", block: "start"});
 }
 async function stopTask() { await post("/api/stop"); poll(); }
 async function answer(a) { await post("/api/review", {answer: a}); poll(); }

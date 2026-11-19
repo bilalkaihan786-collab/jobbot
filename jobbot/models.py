@@ -37,7 +37,7 @@ class Job:
 class FitAssessment(BaseModel):
     score: int = Field(description="0-100: how well the candidate fits this job")
     worth_applying: bool
-    reasons: list[str] = Field(description="Main reasons for the score, 2-5 short items")
+    reasons: list[str] = Field(description="Main reasons for the score, 2-4 short items")
     missing_requirements: list[str] = Field(
         description="Hard requirements in the posting the candidate does not show"
     )

@@ -143,10 +143,20 @@ def chromium_launch_kwargs(headless: bool = True) -> dict:
     return kw
 
 
+BROWSER_MISSING = ("The browser jobbot uses to make PDFs isn't installed (this happens after "
+                   "Playwright is updated). In PowerShell run:  python -m playwright install chromium"
+                   "  then click Try again.")
+
+
 def html_to_pdf(html: str, out: Path) -> Path:
     from playwright.sync_api import sync_playwright
     with sync_playwright() as p:
-        browser = p.chromium.launch(**chromium_launch_kwargs())
+        try:
+            browser = p.chromium.launch(**chromium_launch_kwargs())
+        except Exception as e:
+            if "Executable doesn't exist" in str(e) or "playwright install" in str(e):
+                raise RuntimeError(BROWSER_MISSING) from None
+            raise
         page = browser.new_page()
         page.set_content(html, wait_until="load")
         page.pdf(path=str(out), format="Letter", print_background=True,

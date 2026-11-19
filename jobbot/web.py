@@ -501,7 +501,10 @@ def create_app(config_path: str | Path) -> Flask:
         body = request.get_json(silent=True) or {}
         mode = body.get("mode") if body.get("mode") in ("review", "auto") else None
         limit = body.get("limit")
-        args = SimpleNamespace(limit=int(limit) if limit else None, mode=mode,
+        keys = [str(k) for k in body.get("keys") or [] if k]
+        if action == "prepare" and not keys:
+            return jsonify(error="Pick at least one job to make a resume for."), 400
+        args = SimpleNamespace(limit=int(limit) if limit else None, mode=mode, keys=keys or None,
                                key=body.get("key") or None, ask_human=runner.ask_human,
                                should_stop=lambda: runner.stop_requested)
 

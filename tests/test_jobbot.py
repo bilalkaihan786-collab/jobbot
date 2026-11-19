@@ -647,3 +647,90 @@ def test_serve_refuses_busy_port(monkeypatch, tmp_path, capsys):
     with pytest.raises(SystemExit):
         webmod.serve(str(tmp_path / "config.yaml"), port=8000, open_browser=False)
     assert "already running at http://localhost:8000" in capsys.readouterr().out
+
+
+# ------------------------------------------------------------ speed + choosing resumes
+
+def test_scoring_prompt_puts_job_last_for_reuse(profile, monkeypatch):
+    from jobbot.llm import OllamaLLM
+    good = ('{"score": 70, "worth_applying": true, "reasons": ["r"], '
+            '"missing_requirements": [], "red_flags": []}')
+    sent = _fake_ollama(monkeypatch, [good, good])
+    llm = OllamaLLM(profile, focus="students")
+    llm.assess_fit(make_job(title="Job A", description="aaa"))
+    llm.assess_fit(make_job(title="Job B", description="bbb", source="adzuna"))
+    a, b = (s["messages"][1]["content"] for s in sent)
+    assert a.startswith("Reply with only a JSON object") and a.rstrip().endswith("</job>")
+    # everything before the snippet note / job block is identical between jobs
+    shared = a[:a.index("<job>")]
+    assert b.startswith(shared) and "snippet" in b[len(shared):]
+
+
+def test_find_scores_most_relevant_first(tmp_path, monkeypatch, profile):
+    from types import SimpleNamespace
+    import jobbot.cli as cli
+    import jobbot.sources as sources
+    from jobbot.config import DEFAULTS
+    from jobbot.db import DB
+    from jobbot.models import FitAssessment
+    db = DB(str(tmp_path / "j.db"))
+    weak = make_job(title="Clinic Receptionist", source_id="1", description="front desk")
+    strong = make_job(title="Clinical Research Assistant, Kinesiology", source_id="2",
+                      description="research kinesiology clinic")
+    monkeypatch.setattr(sources, "fetch_all", lambda c: [weak, strong])
+    order = []
+
+    class FakeLLM:
+        def assess_fit(self, j):
+            order.append(j.title)
+            return FitAssessment(score=80, worth_applying=True, reasons=[], missing_requirements=[], red_flags=[])
+    monkeypatch.setattr(cli, "_llm", lambda *a: FakeLLM())
+    cfg = {**DEFAULTS, "search": {**DEFAULTS["search"], "keywords": ["clinic", "research", "kinesiology"]},
+           "matching": {"min_score": 70, "max_jobs_to_score": 1}}
+    cli.cmd_find(cfg, profile, db, SimpleNamespace())
+    assert order == ["Clinical Research Assistant, Kinesiology"]       # best one scored within the limit
+
+
+def test_prepare_only_chosen_jobs(tmp_path, monkeypatch, profile):
+    from types import SimpleNamespace
+    import jobbot.cli as cli
+    from jobbot.config import DEFAULTS
+    from jobbot.db import DB
+    db = DB(str(tmp_path / "j.db"))
+    a, b = make_job(title="A", source_id="1"), make_job(title="B", source_id="2")
+    db.add_new([a, b])
+    for j in (a, b):
+        db.update(j.key, status="scored", score=80)
+    made = []
+
+    class FakeLLM:
+        def tailor_resume(self, j):
+            made.append(j.title)
+            return sample_tailored()
+    monkeypatch.setattr(cli, "_llm", lambda *x: FakeLLM())
+    monkeypatch.setattr(documents, "write_resume", lambda *x, **k: tmp_path / "r.pdf")
+    cfg = {**DEFAULTS, "output_dir": str(tmp_path), "documents": {"cover_letter": "never", "formats": ["pdf"]}}
+    cli.cmd_prepare(cfg, profile, db, SimpleNamespace(limit=None, keys=[b.key]))
+    assert made == ["B"] and db.get(a.key)["status"] == "scored" and db.get(b.key)["status"] == "ready"
+
+
+def test_web_prepare_needs_a_choice(web):
+    app, c, tmp = web
+    r = c.post("/api/run/prepare", json={}, headers=H)
+    assert r.status_code == 400 and "Pick at least one job" in r.get_json()["error"]
+
+
+def test_missing_pdf_browser_explains_fix(monkeypatch, tmp_path):
+    import playwright.sync_api as pw
+
+    class FakeChromium:
+        def launch(self, **k):
+            raise Exception("BrowserType.launch: Executable doesn't exist at /x/chrome")
+
+    class FakePW:
+        chromium = FakeChromium()
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+    monkeypatch.setattr(pw, "sync_playwright", lambda: FakePW())
+    with pytest.raises(RuntimeError, match="python -m playwright install chromium"):
+        documents.html_to_pdf("<p>x</p>", tmp_path / "x.pdf")

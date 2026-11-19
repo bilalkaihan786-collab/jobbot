@@ -44,6 +44,14 @@ def is_internship(job: Job) -> bool:
     return any(_has(title, t) for t in INTERNSHIP_TERMS)
 
 
+def relevance(job: Job, search: dict) -> int:
+    """Cheap keyword score used to decide which postings the AI looks at first."""
+    title = job.title.lower()
+    text = job.description.lower()
+    kws = search.get("keywords") or []
+    return 3 * sum(_has(title, k) for k in kws) + sum(_has(text, k) for k in kws)
+
+
 def passes(job: Job, search: dict) -> tuple[bool, str]:
     """search.focus: jobs (regular roles), students (student-friendly work of any kind), or
     internships (only titles that say internship / co-op / student)."""

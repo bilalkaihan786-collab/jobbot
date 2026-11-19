@@ -71,13 +71,12 @@ class BaseLLM:
                 f"{'Salary: ' + job.salary + chr(10) if job.salary else ''}"
                 f"Description:\n{job.description[:self.max_description_chars]}\n</job>")
 
-    def _focus_note(self, job: Job) -> str:
-        from jobbot.filters import is_internship
-        note = ""
+    @staticmethod
+    def _snippet_note(job: Job) -> str:
         if job.source == "adzuna":
-            note += ("Only a short snippet of this posting's description is available. Judge from "
-                     "what is shown and don't penalise details you can't see.\n\n")
-        return note + self._student_note(job)
+            return ("Only a short snippet of this posting's description is available. Judge from "
+                    "what is shown and don't penalise details you can't see.\n\n")
+        return ""
 
     def _student_note(self, job: Job) -> str:
         from jobbot.filters import is_internship
@@ -102,17 +101,21 @@ class BaseLLM:
     # -------------------------------------------------------------- tasks
     def assess_fit(self, job: Job) -> FitAssessment:
         prefs = json.dumps(self.profile.get("preferences") or {}, ensure_ascii=False)
+        # Everything that is the same for every job comes first and the job comes last, so a
+        # local model can reuse the work it already did on the shared start of the prompt.
         prompt = (
-            f"{self._job_block(job)}\n\n"
             f"Candidate preferences: {prefs}\n\n"
-            f"{self._focus_note(job)}"
-            "Assess how well this candidate fits this job. Score 0-100 where 70+ means a "
+            f"{self._student_note(job)}"
+            "Assess how well this candidate fits the job below. Score 0-100 where 70+ means a "
             "realistic shot at an interview. Be honest: penalise missing hard requirements "
             "(years, degrees, licences, clearances, required skills) and seniority mismatches. "
             "If the posting requires languages (e.g. bilingual English/French), check them "
             "against the `languages` in the profile: meeting one is a strong plus, missing one "
             "is a hard requirement gap. Use the candidate's `targets` preference to judge how "
-            "well the field matches. Set worth_applying=false for any deal-breaker in red_flags."
+            "well the field matches. Set worth_applying=false for any deal-breaker in red_flags. "
+            "Keep every list item short (under 12 words).\n\n"
+            f"{self._snippet_note(job)}"
+            f"{self._job_block(job)}"
         )
         return self._parse(prompt, FitAssessment, effort="low", max_tokens=4000)
 
@@ -292,8 +295,9 @@ class OllamaLLM(BaseLLM):
     def _parse(self, prompt: str, schema: type[T], effort: str = "medium",
                max_tokens: int = 16000) -> T:
         json_schema = schema.model_json_schema()
-        content = (f"{prompt}\n\nReply with only a JSON object matching this schema:\n"
-                   f"{json.dumps(json_schema)}")
+        # Schema first: it's the same for every job of a task, so it belongs to the reusable start.
+        content = (f"Reply with only a JSON object matching this schema:\n"
+                   f"{json.dumps(json_schema)}\n\n{prompt}")
         body = {
             "model": self.model,
             "messages": [{"role": "system", "content": self.system_text},
